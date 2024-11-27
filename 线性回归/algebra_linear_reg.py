@@ -161,8 +161,10 @@ if __name__ == '__main__':
     # 训练模型.
     model = train_model(train_data)
 
-    # 验证模型.
+    # 在验证集上评估模型.
     evaluate_model(model, valid_data)
+    # 在训练集上评估模型.
+    evaluate_model(model,train_data)
 
     # 可视化模型.
     visualize_model(data, model)
