@@ -92,12 +92,15 @@ def visualize_model(data, model):
     x = data[['x']]
     y = data[['y']]
     plt.scatter(x, y)
-    plt.plot(x, model.predict(x), color='red')
+    theta_1 = model.coef_[0][0]
+    theta_0 = model.intercept_[0]
+    label = rf'$y = {round(theta_1, 4)} x + {round(theta_0, 4)} $'
+    plt.plot(x, model.predict(x), color='red', label=label)
     # 添加标题和坐标轴标签
-    plt.title("产品个数-生产成本散点图")
+    plt.title("产品个数-生产成本模型")
     plt.xlabel("产品个数")
     plt.ylabel("生产成本")
-
+    plt.legend()
     # 显示图形
     plt.show()
 
@@ -164,7 +167,7 @@ if __name__ == '__main__':
     # 在验证集上评估模型.
     evaluate_model(model, valid_data)
     # 在训练集上评估模型.
-    evaluate_model(model,train_data)
+    evaluate_model(model, train_data)
 
     # 可视化模型.
     visualize_model(data, model)
