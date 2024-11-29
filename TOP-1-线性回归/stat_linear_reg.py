@@ -88,6 +88,54 @@ def visualize_model(data, const_model, model):
     plt.show()
 
 
+def visualize_residual(data: DataFrame, const_model, model):
+    # 添加常数项.
+    x = data['x']
+    y = data['y']
+
+    predict_x = sm.add_constant(x)
+
+    # 绘制散点图
+    plt.rcParams['font.sans-serif'] = ['SimHei']  # 避免散点图显示中文乱码.
+    plt.rcParams['axes.unicode_minus'] = False  # 显示坐标轴负号.
+
+    # 含常数模型.
+    y_hat = const_model.predict(predict_x)
+    const_residual = y - y_hat  # 残差.
+    plt.scatter(y_hat, const_residual, color='red', label='含常数模型样本点')  # 绘制样本点.
+
+
+    # 无常数模型.
+    y_hat = model.predict(x)
+    residual = y - y_hat  # 残差.
+    plt.scatter(y_hat, residual, color='green', label='无常数模型样本点')  # 绘制样本点.
+
+    #  residual=0.
+    plt.axhline(y=0.0, color='blue', linewidth=1)
+
+
+    # 添加标题和坐标轴标签
+    plt.title("残差图")
+    plt.xlabel("预测值")
+    plt.ylabel("残差")
+    plt.legend()
+
+
+    # 残差QQ图.
+    # 残差QQ图.
+    plt.figure()
+    plt.subplot(1,2,1)
+    stats.probplot(const_residual,plot=plt)
+    plt.title('含常数项模型残差QQ图')
+
+    plt.subplot(1,2,2)
+    stats.probplot(residual,plot=plt)
+    plt.title('无常数项模型残差QQ图')
+
+    # 显示图形
+    plt.show()
+
+
 def user_defined_stat_model_const(data: DataFrame):
     """
     用户自定义统计模型：模型有常数项.
@@ -184,8 +232,6 @@ if __name__ == '__main__':
     # 数据读取.
     data = generate_data()
 
-
-
     # 划分数据.
     train_data, valid_data = split_data(data)
 
@@ -206,4 +252,6 @@ if __name__ == '__main__':
     user_defined_stat_model(train_data)
 
     # 可视化模型.
-    visualize_model(data, const_model, model)
+    # visualize_model(data, const_model, model)
+
+    visualize_residual(data, const_model, model)
