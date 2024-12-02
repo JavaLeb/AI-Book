@@ -38,8 +38,8 @@ def visualize_data(data: DataFrame):
     plt.rcParams['font.sans-serif'] = ['SimHei']  # 避免散点图显示中文乱码.
     plt.scatter(data['x'], data['y'])
     # 添加标题和坐标轴标签
-    plt.title("产品个数-生产成本散点图")
-    plt.xlabel("产品个数")
+    plt.title("手机数量-生产成本散点图")
+    plt.xlabel("手机数量")
     plt.ylabel("生产成本")
 
     # 显示图形
@@ -97,8 +97,8 @@ def visualize_model(data, model):
     label = rf'$y = {round(theta_1, 4)} x + {round(theta_0, 4)} $'
     plt.plot(x, model.predict(x), color='red', label=label)
     # 添加标题和坐标轴标签
-    plt.title("产品个数-生产成本模型")
-    plt.xlabel("产品个数")
+    plt.title("手机数量-生产成本模型")
+    plt.xlabel("手机数量")
     plt.ylabel("生产成本")
     plt.legend()
     # 显示图形

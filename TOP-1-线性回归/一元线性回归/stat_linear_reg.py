@@ -1,3 +1,4 @@
+import scipy.stats
 import statsmodels.api as sm
 from pandas import DataFrame
 from algebra_linear_reg import generate_data, split_data
@@ -79,8 +80,8 @@ def visualize_model(data, const_model, model):
     label = rf'$y = {round(model.params["x"], 4)} x + \varepsilon $'
     plt.plot(x, y_hat, color='green', label=label)  # 绘制常数项模型.
     # 添加标题和坐标轴标签
-    plt.title("产品个数-生产成本模型")
-    plt.xlabel("产品个数")
+    plt.title("手机数量-生产成本模型")
+    plt.xlabel("手机数量")
     plt.ylabel("生产成本")
     plt.legend()
 
@@ -123,6 +124,10 @@ def visualize_residual(data: DataFrame, const_model, model):
 
     # 残差QQ图.
     # 残差QQ图.
+    p = 0.03406367
+    # -1.8241636182858842
+    t =stats.norm.ppf(p)
+
     plt.figure()
     plt.subplot(1,2,1)
     stats.probplot(const_residual,plot=plt)
