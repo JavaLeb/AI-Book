@@ -142,6 +142,7 @@ def evaluate_model(data: DataFrame, model):
 
 
 def visualize_model(data: DataFrame, model):
+    X= data[['x1','x2']].values
     x1 = data['x1']
     x2 = data['x2']
     y = data['y']
@@ -195,6 +196,25 @@ def visualize_model(data: DataFrame, model):
     ax.set_ylabel("x2", fontsize=12)
     ax.set_zlabel('P')
     ax.legend()
+
+    from sklearn.inspection import DecisionBoundaryDisplay
+    plt.figure()
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5), sharex=True, sharey=True)
+
+
+    DecisionBoundaryDisplay.from_estimator(
+        model,
+        X,
+        ax=ax1,
+        response_method="predict",
+        alpha=0.8,
+    )
+    # scatter = ax1.scatter(X[:, 0], X[:, 1], c= y, edgecolor="k")
+    ax1.scatter(x1[pos], x2[pos], color='g', marker='^', label='正样本')
+    ax1.scatter(x1[neg], x2[neg], color='r', label='负样本')
+    # legend = ax1.legend(*scatter.legend_elements(), title="Classes")
+    # ax1.add_artist(legend)
+    ax1.set_title('决策边界')
 
     plt.show()
 
