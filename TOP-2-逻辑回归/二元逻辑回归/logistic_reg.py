@@ -50,24 +50,24 @@ def visualize_data(data: DataFrame):
     # 绘制散点图
     fig = plt.figure()
     ax = fig.add_subplot(111)
-    ax.scatter(x1[pos], x2[pos], color='g', marker='^', label='正样本')
-    ax.scatter(x1[neg], x2[neg], color='r', label='负样本')
+    ax.scatter(x1[pos], x2[pos], color='g', marker='^', label='是否购房：1')
+    ax.scatter(x1[neg], x2[neg], color='r', label='是否购房：0')
     # 添加标题和坐标轴标签
     ax.set_title("样本二维散点图")
-    ax.set_xlabel("收入增长率", fontsize=12)
-    ax.set_ylabel("新品增长率", fontsize=12)
+    ax.set_xlabel("新楼盘增长率", fontsize=12)
+    ax.set_ylabel("年收入增长率", fontsize=12)
     ax.legend()
 
     # 绘制三维散点图.
     fig = plt.figure()
     ax = fig.add_subplot(111, projection='3d')
-    ax.scatter(x1[pos], x2[pos], y[pos], color='g', marker='^', label='正样本')
-    ax.scatter(x1[neg], x2[neg], y[neg], color='r', label='负样本')
+    ax.scatter(x1[pos], x2[pos], y[pos], color='g', marker='^', label='是否购房：1')
+    ax.scatter(x1[neg], x2[neg], y[neg], color='r', label='是否购房：0')
     # 添加标题和坐标轴标签
     ax.set_title("样本三维散点图")
-    ax.set_xlabel("收入增长率", fontsize=12)
-    ax.set_ylabel("新品增长率", fontsize=12)
-    ax.set_zlabel('是否流失')
+    ax.set_xlabel("新楼盘增长率", fontsize=12)
+    ax.set_ylabel("年收入增长率", fontsize=12)
+    ax.set_zlabel('是否购房')
     ax.legend()
 
     # 显示图形
