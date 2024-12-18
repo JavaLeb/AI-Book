@@ -2,6 +2,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
 from pandas import DataFrame
+from matplotlib.colors import ListedColormap
+
 from sklearn.inspection import DecisionBoundaryDisplay
 from sklearn.linear_model import LinearRegression, LogisticRegression
 from sklearn.metrics import confusion_matrix
@@ -168,43 +170,54 @@ def evaluate_model(data: DataFrame, model):
 
 
 def visualize_model(data: DataFrame, model):
-    X = data[['x1', 'x2']].values
+    # 绘制散点图
     x1 = data['x1']
     x2 = data['x2']
     y = data['y']
     neg = (y == 0)
     pos = (y == 1)
 
-    # 绘制散点图
-    plt.rcParams['font.sans-serif'] = ['SimHei']  # 避免散点图显示中文乱码.
-    plt.rcParams['axes.unicode_minus'] = False  # 显示坐标轴负号.
+    # 制作网格，将网格上的点看做新的样本.
+    mesh_x1, mesh_x2 = np.meshgrid(np.linspace(-15, 15, 500).reshape(-1, 1),
+                                   np.linspace(-12, 12, 200).reshape(-1, 1))
+    X_new = np.c_[mesh_x1.ravel(), mesh_x2.ravel()]
+    # 预测网格点的概率和类别.
+    y_proba = model.predict_proba(X_new)
+    y_predict = model.predict(X_new)
 
-    # 绘制散点图
+    # 网格点属于类别1的概率和归属类.
+    proba_z = y_proba[:, 1].reshape(mesh_x1.shape)
+    y_predict = y_predict.reshape(mesh_x1.shape)
 
-    plt.scatter(x1[pos], x2[pos], color='g', marker='^', label='正样本')
-    plt.scatter(x1[neg], x2[neg], color='r', label='负样本')
+    fig = plt.figure()
+    ax = fig.add_subplot(111)
+    # 使用网格点的类别绘制类别区域，颜色相同的区域类别相同.
+    custom_cmap = ListedColormap(["#fafab0", "#9898ff"])
+    ax.contourf(mesh_x1, mesh_x2, y_predict, cmap=custom_cmap)
+    # 使用网格点的预测概率绘制等概率线，同一等概率线上的概率相等
+    contour = ax.contour(mesh_x1, mesh_x2, proba_z, cmap="hot")
+    # 设置等概率线.
+    ax.clabel(contour, inline=0.1, fontsize=12)
+    # 绘制数据样本.
+    ax.scatter(x1[pos], x2[pos], color='g', marker='^', label='正样本')
+    ax.scatter(x1[neg], x2[neg], color='r', label='负样本')
+    ax.set_xlabel(r'$x_1$')
+    ax.set_ylabel(r'$x_2$')
+    ax.set_title('决策边界')
+    ax.legend()
+    plt.show()
 
-    x = np.arange(-15, 15, 0.01)
+    # 绘制三维散点图.
     theta_0 = model.intercept_[0]
     theta_1 = model.coef_[0][0]
     theta_2 = model.coef_[0][1]
-
-    # 0 = theta_0 + theta_1 * x1 + theta_2 * x2
-    func = lambda x, p: (-theta_0 - theta_1 * x + np.log(p / (1 - p))) / theta_2
-    for p in [0.5, 0.9, 0.1]:
-        plt.plot(x, func(x, p), label=f'P={p}', linestyle='--')
-    # 添加标题和坐标轴标签
-    plt.title(rf'决策边界${round(theta_0, 2)} + {round(theta_1, 2)} x_1 + {round(theta_2, 2)} x_2$')
-    plt.xlabel("x1")
-    plt.ylabel("x2")
-    plt.legend()
 
     s_x1 = np.arange(-15, 15, 0.05)
     s_x2 = np.arange(-15, 15, 0.05)
     s_x1, s_x2 = np.meshgrid(s_x1, s_x2)
     t = theta_0 + theta_1 * s_x1 + theta_2 * s_x2
     z = 1 / (1 + np.exp(-t))
-    # 绘制三维散点图.
+
     fig = plt.figure()
     ax = fig.add_subplot(111, projection='3d')
     ax.scatter(x1[pos], x2[pos], y[pos], color='g', marker='^', label='正样本')
@@ -215,16 +228,6 @@ def visualize_model(data: DataFrame, model):
     ax.set_xlabel("x1", fontsize=12)
     ax.set_ylabel("x2", fontsize=12)
     ax.set_zlabel('P')
-    ax.legend()
-
-    fig = plt.figure()
-    ax = fig.add_subplot(111)
-    DecisionBoundaryDisplay.from_estimator(model, X, ax=ax, response_method="predict")
-    ax.scatter(x1[pos], x2[pos], color='g', marker='^', label='正样本')
-    ax.scatter(x1[neg], x2[neg], color='r', label='负样本')
-    ax.set_xlabel("x1", fontsize=12)
-    ax.set_ylabel("x2", fontsize=12)
-    ax.set_title('决策边界')
     ax.legend()
 
     plt.show()

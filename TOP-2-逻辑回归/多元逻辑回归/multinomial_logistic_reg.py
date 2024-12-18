@@ -58,7 +58,7 @@ def visualize_data(data: DataFrame):
     ax.set_zlabel('类别')
     ax.legend(*scatter.legend_elements(), title="类别")
 
-    # plt.show()
+    plt.show()
 
 
 def split_data(data: DataFrame):
@@ -95,14 +95,15 @@ def train_model(train_data: DataFrame):
     user_y_proba = softmax(t)
     print('user_y_proba=', user_y_proba)
 
+    # 训练OvR模型.
     ovr_model = OneVsRestClassifier(LogisticRegression()).fit(X, y)
 
-    ovo_model = OneVsOneClassifier(LogisticRegression()).fit(X, y)
-
-    return model
+    return model, ovr_model
 
 
-def evaluate_model(model, data: DataFrame):
+def evaluate_model(model, data: DataFrame, model_name, data_name):
+    title = f'{data_name}-{model_name}'
+
     X = data[['x1', 'x2']]  # 特征
     y_true = data['y']  # 目标标签.
 
@@ -119,15 +120,11 @@ def evaluate_model(model, data: DataFrame):
         model_metric_df.loc['recall', average] = recall_score(y_true, y_predict, average=average)
         model_metric_df.loc['f1', average] = f1_score(y_true, y_predict, average=average)
         model_metric_df.loc['fbeta', average] = fbeta_score(y_true, y_predict, beta=beta, average=average)
-    # 打印指标.
-    print('confusion_matrix=\n', cm)
-    print('accuracy=', round(accuracy, retain_n))
-    print(model_metric_df.round(retain_n).to_markdown())
 
     # 可视化混淆矩阵.
     disp = ConfusionMatrixDisplay(confusion_matrix=cm)
     disp.plot()
-    plt.title('混淆矩阵')
+    plt.title(f'{title} 混淆矩阵')
 
     binarized_y_true = label_binarize(y_true, classes=model.classes_)  # 二值化真实类别.
     binarized_y_predict = label_binarize(y_predict, classes=model.classes_)  # 二值化预测类别.
@@ -205,110 +202,79 @@ def evaluate_model(model, data: DataFrame):
     label = f'Weighted: ROC-AUC={round(weighted_roc_auc, retain_n)}'
     roc_ax.plot(all_fpr, weighted_tpr, label=label)
 
+    model_metric_df.loc['average-precision', 'macro'] = macro_ap
+    model_metric_df.loc['average-precision', 'weighted'] = weighted_ap
+    model_metric_df.loc['pr-auc', 'macro'] = macro_pr_auc
+    model_metric_df.loc['pr-auc', 'weighted'] = weighted_pr_auc
+    model_metric_df.loc['roc-auc', 'macro'] = macro_roc_auc
+    model_metric_df.loc['roc-auc', 'weighted'] = weighted_roc_auc
+
+    # 打印指标.
+    print('confusion_matrix=\n', cm)
+    print('accuracy=', round(accuracy, retain_n))
+    print(model_metric_df.round(retain_n).to_markdown())
+
     pr_ax.legend()
     pr_ax.set_xlabel('召回率Recall')
     pr_ax.set_ylabel('精准率Precision')
-    pr_ax.set_title(f'多元逻辑回归Precision-Recall曲线')
+    pr_ax.set_title(f'{title} Precision-Recall曲线')
 
     roc_ax.set_xlabel('假阳性率FPR')
     roc_ax.set_ylabel('真阳性率TPR')
-    roc_ax.set_title(f'多元逻辑回归ROC曲线')
+    roc_ax.set_title(f'{title} ROC曲线')
     roc_ax.legend()
 
     plt.show()
 
 
 def visualize_model(data: DataFrame, model):
-    X = data[['x1','x2']].values
-    y = data['y'].values
-    custom_cmap = ListedColormap(["#fafab0", "#9898ff", "#a0faa0"])
-
-    x0, x1 = np.meshgrid(np.linspace(0, 8, 500).reshape(-1, 1),
-                         np.linspace(0, 3.5, 200).reshape(-1, 1))
-    X_new = np.c_[x0.ravel(), x1.ravel()]
-
-    y_proba = model.predict_proba(X_new)
-    y_predict = model.predict(X_new)
-
-    zz1 = y_proba[:, 1].reshape(x0.shape)
-    zz = y_predict.reshape(x0.shape)
-
-    plt.figure(figsize=(10, 4))
-    plt.plot(X[y == 2, 0], X[y == 2, 1], "g^", label="Iris virginica")
-    plt.plot(X[y == 1, 0], X[y == 1, 1], "bs", label="Iris versicolor")
-    plt.plot(X[y == 0, 0], X[y == 0, 1], "yo", label="Iris setosa")
-
-    plt.contourf(x0, x1, zz, cmap=custom_cmap)
-    contour = plt.contour(x0, x1, zz1, cmap="hot")
-    plt.clabel(contour, inline=1)
-    plt.xlabel("Petal length")
-    plt.ylabel("Petal width")
-    plt.legend(loc="center left")
-    plt.axis([0.5, 7, 0, 3.5])
-    plt.grid()
-
-    plt.show()
-
     x1 = data['x1']
     x2 = data['x2']
     y = data['y']
-    fig, ax = plt.subplots(figsize=(6, 4))
 
+    # 制作网格，将网格上的点看做新的样本.
+    mesh_x1, mesh_x2 = np.meshgrid(np.linspace(-6, 6, 500).reshape(-1, 1),
+                                   np.linspace(-10, 10, 200).reshape(-1, 1))
+    X_new = np.c_[mesh_x1.ravel(), mesh_x2.ravel()]
+    # 预测网格点的概率和类别.
+    y_proba = model.predict_proba(X_new)
+    y_predict = model.predict(X_new)
+
+    # 网格点属于类别1的概率和归属类.
+    proba_z = y_proba[:, 1].reshape(mesh_x1.shape)
+    y_predict = y_predict.reshape(mesh_x1.shape)
+
+    fig = plt.figure()
+    ax = fig.add_subplot(111)
+    # 使用网格点的类别绘制类别区域，颜色相同的区域类别相同.
+    custom_cmap = ListedColormap(["#fafab0", "#9898ff", "#a0faa0"])
+    ax.contourf(mesh_x1, mesh_x2, y_predict, cmap=custom_cmap)
+    # 使用网格点的预测概率绘制等概率线，同一等概率线上的概率相等
+    contour = ax.contour(mesh_x1, mesh_x2, proba_z, cmap="hot")
+    # 设置等概率线.
+    ax.clabel(contour, inline=0.1, fontsize=12)
+    # 绘制数据样本.
     scatter = ax.scatter(x1, x2, c=y, edgecolor="black")
-    ax.set(title="数据样本散点图", xlabel=r"$x_1$", ylabel=r"$x_2$")
-    _ = ax.legend(*scatter.legend_elements(), title="类别")
-
-    # 0 = theta_0 + theta_1 * x1 + theta_2 * x2
-    func = lambda x, p: (-theta_0 - theta_1 * x - np.log(p / (1 - p))) / theta_2
-    x = np.arange(-4, 4, 0.01)
-    for i in [0, 1, 2]:
-        theta_0 = model.intercept_[i]
-        theta_1 = model.coef_[i][0]
-        theta_2 = model.coef_[i][1]
-
-        for p in [0.33]:
-            plt.plot(x, func(x, p), label=f'P={p}', linestyle='--')
-        # 添加标题和坐标轴标签
-        plt.title(rf'决策边界${round(theta_0, 2)} + {round(theta_1, 2)} x_1 + {round(theta_2, 2)} x_2$')
-        plt.xlabel("x1")
-        plt.ylabel("x2")
-        plt.legend()
-    #
-    # s_x1 = np.arange(-5, 5, 0.05)
-    # s_x2 = np.arange(-5, 5, 0.05)
-    # s_x1, s_x2 = np.meshgrid(s_x1, s_x2)
-    # t = theta_0 + theta_1 * s_x1 + theta_2 * s_x2
-    # z = 1 / (1 + np.exp(-t))
-    # # 绘制三维散点图.
-    # fig = plt.figure()
-    # ax = fig.add_subplot(111, projection='3d')
-    # ax.scatter(x1[label_1_y], x2[label_1_y], y[label_1_y], color='g', marker='^', label='正样本')
-    # ax.scatter(x1[label_0_y], x2[label_0_y], y[label_0_y], color='r', label='负样本')
-    # ax.plot(s_x1, s_x2, z, alpha=0.5, label='逻辑回归曲面')
-    # # 添加标题和坐标轴标签
-    # ax.set_title("逻辑回归模型")
-    # ax.set_xlabel("x1", fontsize=12)
-    # ax.set_ylabel("x2", fontsize=12)
-    # ax.set_zlabel('P')
-    # ax.legend()
-    #
-    # fig = plt.figure()
-    # ax = fig.add_subplot(111)
-    # DecisionBoundaryDisplay.from_estimator(model, X, ax=ax, response_method="predict")
-    # ax.scatter(x1[label_1_y], x2[label_1_y], color='g', marker='^', label='正样本')
-    # ax.scatter(x1[label_0_y], x2[label_0_y], color='r', label='负样本')
-    # ax.set_xlabel("x1", fontsize=12)
-    # ax.set_ylabel("x2", fontsize=12)
-    # ax.set_title('决策边界')
-    # ax.legend()
-
+    ax.legend(*scatter.legend_elements(), title="类别")
+    ax.set_xlabel(r'$x_1$')
+    ax.set_ylabel(r'$x_2$')
+    ax.set_title('决策边界')
     plt.show()
 
 
 if __name__ == '__main__':
+    # 生成数据.
     data = generate_data()
-    # visualize_data(data)
+    # 可视化数据.
+    visualize_data(data)
+    # 切分数据.
     train_data, valid_data = split_data(data)
-    model = train_model(train_data)
-    # evaluate_model(model, train_data)
-    visualize_model(data, model)
+    # 训练模型.
+    model, ovr_model = train_model(train_data)
+    # 模型评估.
+    evaluate_model(model, train_data, 'softmax', '训练集')  # 在训练集上评估softmax回归.
+    evaluate_model(model, valid_data, 'softmax', '验证集')  # 在验证集上评估softmax回归.
+    evaluate_model(ovr_model, train_data, 'OvR', '训练集')  # 在训练集上评估OvR回归.
+    evaluate_model(ovr_model, valid_data, 'OvR', '验证集')  # 在验证集上评估OvR回归.
+    visualize_model(data, model)  # 可视化softmax回归.
+    visualize_model(data, ovr_model)  # 可视化OvR.
