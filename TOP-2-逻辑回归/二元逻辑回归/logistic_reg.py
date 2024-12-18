@@ -2,10 +2,17 @@ import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
 from pandas import DataFrame
+from sklearn.inspection import DecisionBoundaryDisplay
 from sklearn.linear_model import LinearRegression, LogisticRegression
-from sklearn.metrics import confusion_matrix, accuracy_score, precision_score, recall_score, f1_score, fbeta_score, \
-    precision_recall_curve, roc_auc_score, roc_curve, ConfusionMatrixDisplay, PrecisionRecallDisplay, RocCurveDisplay, \
-    auc
+from sklearn.metrics import confusion_matrix
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, fbeta_score, roc_auc_score
+from sklearn.metrics import precision_recall_curve, roc_curve
+from sklearn.metrics import average_precision_score, auc
+from sklearn.metrics import ConfusionMatrixDisplay, PrecisionRecallDisplay, RocCurveDisplay
+
+# 绘制散点图
+plt.rcParams['font.sans-serif'] = ['SimHei']  # 避免散点图显示中文乱码.
+plt.rcParams['axes.unicode_minus'] = False  # 显示坐标轴负号.
 
 
 def generate_data():
@@ -28,6 +35,8 @@ def generate_data():
 
     shuffled_data = data.sample(frac=1).reset_index(drop=True)
 
+    print('生成的数据=\n', shuffled_data)
+
     return shuffled_data
 
 
@@ -42,10 +51,6 @@ def visualize_data(data: DataFrame):
     y = data['y']
     neg = (y == 0)
     pos = (y == 1)
-
-    # 绘制散点图
-    plt.rcParams['font.sans-serif'] = ['SimHei']  # 避免散点图显示中文乱码.
-    plt.rcParams['axes.unicode_minus'] = False  # 显示坐标轴负号.
 
     # 绘制散点图
     fig = plt.figure()
@@ -71,7 +76,7 @@ def visualize_data(data: DataFrame):
     ax.legend()
 
     # 显示图形
-    plt.show()
+    # plt.show()
 
 
 def split_data(data: DataFrame):
@@ -102,47 +107,68 @@ def train_model(data: DataFrame):
 
 def evaluate_model(data: DataFrame, model):
     X = data[['x1', 'x2']]  # 特征
-    y = data['y']  # 目标标签.
-    y_predict = model.predict(X)  # 模型预测.
-    y_scores = model.predict_proba(X)[:, 1]  # 预测概率.
-    cm = confusion_matrix(y, y_predict)  # 混淆矩阵.
-    accuracy = accuracy_score(y, y_predict)  # 准确率.
-    precision = precision_score(y, y_predict)  # 精准率.
-    recall = recall_score(y, y_predict)  # 召回率.
-    f1 = f1_score(y, y_predict)  # F1 score。
-    fbeta = fbeta_score(y, y_predict, beta=2)  # F beta score.
-    fpr, tpr, thresholds = roc_curve(y, y_scores, drop_intermediate=False)  # 假阳性率，真阳性率，阈值.
-    roc_auc = auc(fpr, tpr)  # AUC.
+    y_true = data['y']  # 目标标签.
 
+    y_predict = model.predict(X)  # 模型预测.
+    y_scores = model.predict_proba(X)  # 预测概率.
+    pos_score = y_scores[:, 1]  # 正样本的概率.
+
+    # PR曲线手工绘制测试数据.
+    pr_df = pd.DataFrame()
+    pr_df['label'] = y_true.copy().values
+    pr_df['proba'] = pos_score
+    pr_df = pr_df.sort_values(by='proba', ascending=False)
+    print(pr_df.round(3))
+    model_metric_df = pd.DataFrame()
+    cm = confusion_matrix(y_true, y_predict)  # 混淆矩阵.
+    model_metric_df['accuracy'] = [accuracy_score(y_true, y_predict)]  # 准确率.
+    model_metric_df['precision'] = precision_score(y_true, y_predict)  # 精准率.
+    model_metric_df['recall'] = recall_score(y_true, y_predict)  # 召回率.
+    model_metric_df['average_precision'] = average_precision_score(y_true, pos_score)  # Average Precision.
+
+    # 计算每个阈值对应的精准率和召回率.
+    precisions, recalls, thresholds = precision_recall_curve(y_true, pos_score)
+    model_metric_df['pr_auc'] = auc(recalls, precisions)  # P-R曲线下的面积.
+    # 自定义计算Average Precision, 与average_precision_score等价.
+    user_average_precision = np.sum((recalls[:-1] - recalls[1:]) * precisions[:-1])
+
+    model_metric_df['f1'] = f1_score(y_true, y_predict)  # F1 score.
+    model_metric_df['fbeta'] = fbeta_score(y_true, y_predict, beta=2)  # F beta score.
+    fpr, tpr, thresholds = roc_curve(y_true, pos_score, drop_intermediate=False)  # 假阳性率，真阳性率，阈值.
+    roc_auc = auc(fpr, tpr)  # ROC曲线下的面积, 与roc_auc_score等价.
+    model_metric_df['roc_auc'] = roc_auc
+    model_metric_df['roc_auc_s'] = roc_auc_score(y_true, pos_score)  # ROC曲线下的面积.
+
+    retain_n = 3  # 保留小数位的个数.
     print('confusion_matrix=\n', cm)
-    print('accuracy=', round(accuracy, 2))
-    print('precision=', round(precision, 2))
-    print('recall=', round(recall, 2))
-    print('f1=', round(f1, 2))
-    print(f'fbeta(beta={2})=', round(fbeta, 2))
-    print('auc=', round(roc_auc, 2))
+    print('model_metirc=\n', model_metric_df.round(retain_n).to_markdown())
 
     # 可视化混淆矩阵.
     disp = ConfusionMatrixDisplay(confusion_matrix=cm)
     disp.plot()
     plt.title('混淆矩阵')
+
     # 绘制pr曲线.
-    precision, recall, thresholds = precision_recall_curve(y, y_scores)
-    pr_display = PrecisionRecallDisplay(precision=precision, recall=recall)
+    pr_display = PrecisionRecallDisplay(precision=precisions, recall=recalls)
     pr_display.plot()
-    plt.scatter(recall, precision, color='red')
+    plt.scatter(recalls, precisions, color='red')
+    plt.xlabel('召回率Recall', fontsize=12)
+    plt.ylabel('精准率Precision', fontsize=12)
     plt.title('Precision-Recall曲线')
+
     # 绘制 roc曲线
     display = RocCurveDisplay(fpr=fpr, tpr=tpr, roc_auc=roc_auc)
     display.plot()
     plt.scatter(fpr, tpr, color='red')
+    plt.xlabel('假阳性率False Positive Rate', fontsize=12)
+    plt.ylabel('真阳性率True Positive Rate', fontsize=12)
     plt.title('ROC曲线')
 
     plt.show()
 
 
 def visualize_model(data: DataFrame, model):
-    X= data[['x1','x2']].values
+    X = data[['x1', 'x2']].values
     x1 = data['x1']
     x2 = data['x2']
     y = data['y']
@@ -164,15 +190,9 @@ def visualize_model(data: DataFrame, model):
     theta_2 = model.coef_[0][1]
 
     # 0 = theta_0 + theta_1 * x1 + theta_2 * x2
-    p = 0.5
-    t = (-theta_0 - theta_1 * x + np.log(p / (1 - p))) / theta_2
-    plt.plot(x, t, label=f'P={p}',linestyle='--')
-    p = 0.9
-    t = (-theta_0 - theta_1 * x + np.log(p / (1 - p))) / theta_2
-    plt.plot(x, t, label=f'P={p}',linestyle='--')
-    p = 0.1
-    t = (-theta_0 - theta_1 * x + np.log(p / (1 - p))) / theta_2
-    plt.plot(x, t, label=f'P={p}',linestyle='--')
+    func = lambda x, p: (-theta_0 - theta_1 * x + np.log(p / (1 - p))) / theta_2
+    for p in [0.5, 0.9, 0.1]:
+        plt.plot(x, func(x, p), label=f'P={p}', linestyle='--')
     # 添加标题和坐标轴标签
     plt.title(rf'决策边界${round(theta_0, 2)} + {round(theta_1, 2)} x_1 + {round(theta_2, 2)} x_2$')
     plt.xlabel("x1")
@@ -197,24 +217,15 @@ def visualize_model(data: DataFrame, model):
     ax.set_zlabel('P')
     ax.legend()
 
-    from sklearn.inspection import DecisionBoundaryDisplay
-    plt.figure()
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5), sharex=True, sharey=True)
-
-
-    DecisionBoundaryDisplay.from_estimator(
-        model,
-        X,
-        ax=ax1,
-        response_method="predict",
-        alpha=0.8,
-    )
-    # scatter = ax1.scatter(X[:, 0], X[:, 1], c= y, edgecolor="k")
-    ax1.scatter(x1[pos], x2[pos], color='g', marker='^', label='正样本')
-    ax1.scatter(x1[neg], x2[neg], color='r', label='负样本')
-    # legend = ax1.legend(*scatter.legend_elements(), title="Classes")
-    # ax1.add_artist(legend)
-    ax1.set_title('决策边界')
+    fig = plt.figure()
+    ax = fig.add_subplot(111)
+    DecisionBoundaryDisplay.from_estimator(model, X, ax=ax, response_method="predict")
+    ax.scatter(x1[pos], x2[pos], color='g', marker='^', label='正样本')
+    ax.scatter(x1[neg], x2[neg], color='r', label='负样本')
+    ax.set_xlabel("x1", fontsize=12)
+    ax.set_ylabel("x2", fontsize=12)
+    ax.set_title('决策边界')
+    ax.legend()
 
     plt.show()
 
@@ -222,7 +233,7 @@ def visualize_model(data: DataFrame, model):
 if __name__ == '__main__':
     data = generate_data()
 
-    visualize_data(data)
+    # visualize_data(data)
 
     train_data, valid_data = split_data(data)
 
