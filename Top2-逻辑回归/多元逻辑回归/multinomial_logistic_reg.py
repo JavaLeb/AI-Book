@@ -102,10 +102,10 @@ def train_model(train_data: DataFrame):
 
 
 def evaluate_model(model, data: DataFrame, model_name, data_name):
-    title = f'{data_name}-{model_name}'
 
     X = data[['x1', 'x2']]  # 特征
     y_true = data['y']  # 目标标签.
+    title = f'{data_name}-{model_name}'
 
     y_predict = model.predict(X)  # 模型预测.
     y_scores = model.predict_proba(X)  # 预测概率.
