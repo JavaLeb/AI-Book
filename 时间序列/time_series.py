@@ -54,7 +54,8 @@ h = 1
 data = ts_data_load_subset
 x_mean = np.mean(data)  # 2601.8
 c0 = np.sum((data - x_mean) ** 2) / n  # 6294.96
-r = (np.asarray(data[: n - h] - x_mean) * np.asarray(data[h:] - x_mean)).sum() / n / c0
+b = (np.asarray(data[: n - h] - x_mean) * np.asarray(data[h:] - x_mean)).sum() / n
+r=b/ c0
 print('rr=', r)
 
 # [2566.   2606.75]
