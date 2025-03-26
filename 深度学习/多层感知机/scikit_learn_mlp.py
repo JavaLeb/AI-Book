@@ -24,7 +24,7 @@ print('y_predict=', np.round(y_predict, 2), ', mes=', np.round(mse, 2))
 
 # 初始化MLP分类器.
 cls = MLPClassifier(hidden_layer_sizes=(2,),
-                    batch_size=2,
+                    batch_size=1,
                     solver="lbfgs",
                     activation='logistic',
                     learning_rate_init=0.1,
