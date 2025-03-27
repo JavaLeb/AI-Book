@@ -3,10 +3,7 @@ from sklearn.metrics import mean_squared_error, accuracy_score
 import numpy as np
 
 # 异或问题的输入样本
-X = [[0, 0],
-     [0, 1],
-     [1, 0],
-     [1, 1]]
+X = [[0, 0], [0, 1], [1, 0], [1, 1]]
 y = [0, 1, 1, 0]
 
 # 初始化MLP回归器.
