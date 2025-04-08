@@ -25,7 +25,7 @@ def plot():
     ax1.set_zlabel(r'$L$')
     plt.title(r'Loss Function')
 
-    ax2=fig.add_subplot(122)
+    ax2 = fig.add_subplot(122)
     contour = plt.contour(X, Y, Z, levels=np.logspace(0, 3, 10), cmap='viridis')  # 绘制等高线.
     plt.clabel(contour, inline=True, fontsize=8)
     ax2.scatter(true_w, true_b, c='red', marker='x', s=100, label='True Params')
@@ -44,7 +44,6 @@ torch.manual_seed(42)
 x = torch.linspace(0, 10, 10)  # shape: (10,).
 true_w, true_b = 2.0, 1.0
 y = true_w * x + true_b + torch.randn(x.size()) * 1.5  # shape: (10,)
-
 
 
 def loss_func(params):
@@ -101,9 +100,10 @@ if __name__ == "__main__":
     initial_params = torch.tensor([10.0, 10.0], requires_grad=False)  # 初始化参数
     lr = 0.01
     # 运行梯度下降.
-    _, _, points = gradient_descent(func=loss_func, init_params=initial_params,
-                                    lr=lr,
-                                    max_iters=10000)
+    params, loss_history, points = gradient_descent(func=loss_func, init_params=initial_params,
+                                                    lr=lr,
+                                                    max_iters=10000)
+    plt.plot(loss_history)  # 学习曲线.
     plot()  # 绘制等高线.
     plot_points(points, lr)  # 绘制参数迭代路径.
     plt.show()
