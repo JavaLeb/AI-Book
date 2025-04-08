@@ -33,35 +33,40 @@ def plot_contour():
 
 def mesh_loss_func():
     # 生成等高线数据
-    r = 15
-    x = np.linspace(-r, r, 400)
-    y = np.linspace(-r, r, 400)
-    X, Y = np.meshgrid(x, y)
-    mesh_loss = X ** 2 + 2 * Y ** 2
+    r, n = 15, 400
+    x = np.linspace(-r, r, n)  # 生成400个点, 包含-r和r，步长step=2r/(400-1).
+    y = np.linspace(-r, r, n)
+    X, Y = np.meshgrid(x, y)  # x沿着y的维度复制得到X，y沿着x的维度复制得到Y. 让X和Y重叠，重叠位置就是(x,y)坐标.
 
-    return X, Y, mesh_loss
+    points = np.stack([X.ravel(), Y.ravel()], axis=1)  # 网格点变为坐标点(x,y).
+    points = torch.tensor(points, dtype=torch.float32)  # 转化为张量.
+
+    Z = loss_func(points)
+    Z = Z.reshape(X.shape).numpy()  # 转换为网格数据.
+
+    return X, Y, Z
 
 
 def loss_func(params):
     """
     定义损失函数 f(x,y) = x1^2 + 2 * x2^2.
-    :param params: 函数自变量.
+    :param params: 函数自变量张量，例如[x1,x2].
     :return: 函数因变量.
     """
     c = torch.tensor([1, 2])
 
-    return torch.sum(params ** 2 * c)
+    return torch.sum(c * params ** 2, dim=-1)
 
 
 if __name__ == "__main__":
     initial_params = torch.tensor([[10.0, 10.0], [-10.0, 10.0], [-10.0, -10.0]], requires_grad=False)  # 初始化参数
-    learning_rates = [0.5, 0.1, 0.45]
+    learning_rates = [0.5, 0.45, 0.1]
     # 运行梯度下降.
     plt.figure(figsize=(10, 8))
     for i in range(len(learning_rates)):
         lr = learning_rates[i]
-        print(lr)
-        _, _, points = gradient_descent(func=loss_func, init_params=initial_params[i],
+        _, _, points = gradient_descent(func=loss_func,
+                                        init_params=initial_params[i],
                                         lr=lr,
                                         max_iters=10000)
         plot_contour()  # 绘制等高线.

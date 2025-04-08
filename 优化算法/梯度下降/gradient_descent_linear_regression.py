@@ -7,7 +7,7 @@ from gradient_descent import gradient_descent
 def plot_points(points, lr):
     points = np.array(points)
     # 绘制参数点以及路径.
-    plt.plot(points[:, 0], points[:, 1], 'o-', markersize=4, linewidth=1, label=rf'$\eta$ = {lr}')
+    plt.plot(points[:, 0], points[:, 1], 'o-', markersize=5, linewidth=1, label=rf'$\eta$ = {lr}')
     plt.legend()
 
 
@@ -23,10 +23,13 @@ def plot():
     plt.xlabel(r'$\theta_1$')
     plt.ylabel(r'$\theta_2$')
     ax1.set_zlabel(r'$L$')
-    plt.title(r'Gradient Descent')
-    fig.add_subplot(122)
+    plt.title(r'Loss Function')
+
+    ax2=fig.add_subplot(122)
     contour = plt.contour(X, Y, Z, levels=np.logspace(0, 3, 10), cmap='viridis')  # 绘制等高线.
     plt.clabel(contour, inline=True, fontsize=8)
+    ax2.scatter(true_w, true_b, c='red', marker='x', s=100, label='True Params')
+
     # 设置图形属性
     r = 11
     plt.xlim(-r, r)
@@ -37,64 +40,61 @@ def plot():
     plt.grid(True)
 
 
-# 生成一元线性回归样本数据.
 torch.manual_seed(42)
 x = torch.linspace(0, 10, 10)  # shape: (10,).
 true_w, true_b = 2.0, 1.0
 y = true_w * x + true_b + torch.randn(x.size()) * 1.5  # shape: (10,)
 
 
+
 def loss_func(params):
     """
-    计算参数网格上的损失值
+    优化后的损失函数，支持单点和网格参数输入
     参数：
-    w_grid : 权重参数网格 (100, 100)
-    b_grid : 偏置参数网格 (100, 100)
+    params : Tensor of shape (2,) or (N, 2) 或 (H, W, 2)
     返回：
-    loss : 损失值网格 (100, 100)
+    loss : 标量或 (H, W) 的损失矩阵
     """
-    # 维度调整（关键修正步骤）
-    w_grid = params[0]  # theta1
-    b_grid = params[1]  # theta2
+    # 统一输入维度为 (..., 2) (优化点2：灵活维度处理)
+    original_shape = params.shape
+    params = params.reshape(-1, 2)  # 展平为 (N, 2)
 
-    x_3d = x.reshape(1, 1, -1)  # shape: (1, 1, 10)
-    w_3d = w_grid.unsqueeze(-1)  # shape: (100, 100, 1)
-    b_3d = b_grid.unsqueeze(-1)  # shape: (100, 100, 1)
+    theta_1 = params[:, 0]  # shape: (N,)
+    theta_2 = params[:, 1]  # shape: (N,)
 
-    # 广播计算预测值 (100, 100, 10)
-    y_pred = w_3d * x_3d + b_3d
+    # 利用广播机制批量计算 (优化点3：避免冗余reshape)
+    # x.shape=(10,) => (1, 10), w/b.shape=(N,1) => 最终shape=(N,10)
+    y_pred = theta_1[:, None] * x[None, :] + theta_2[:, None]
 
-    # 计算损失 (100, 100)
-    loss = torch.mean((y_pred - y) ** 2, dim=2)
-    return loss
+    # 计算均方误差 (优化点4：高效矩阵运算)
+    loss = torch.mean((y_pred - y[None, :]) ** 2, dim=1)
+
+    # 恢复原始形状
+    return loss.reshape(original_shape[:-1])
 
 
 def mesh_loss_func():
     """
-    计算参数网格上的损失值
+    生成参数网格和对应的损失矩阵 (优化点5：独立网格生成函数)
     参数：
-    w_grid : 权重参数网格 (100, 100)
-    b_grid : 偏置参数网格 (100, 100)
-    返回：
-    loss : 损失值网格 (100, 100)
+    w_range : 权重参数范围
+    b_range : 偏置参数范围
+    steps   : 每个方向的采样点数
     """
-    # 维度调整（关键修正步骤）
-    # 生成参数网格 (修正索引方式)
-    r = 10
-    x = torch.linspace(-r, r, 400)  # shape: (100,)
-    y = torch.linspace(-r, r, 400)  # shape: (100,)
-    X, Y = torch.meshgrid(x, y, indexing='ij')  # shape: (100, 100)
+    # 生成参数网格 (优化点6：使用更合理的参数范围)
+    r, n = 11, 400
+    theta_1 = torch.linspace(-r, r, n)
+    theta_2 = torch.linspace(-r, r, n)
+    W, B = torch.meshgrid(theta_1, theta_2, indexing='ij')  # shape: (steps, steps)
 
-    x_3d = x.reshape(1, 1, -1)  # shape: (1, 1, 10)
-    w_3d = X.unsqueeze(-1)  # shape: (100, 100, 1)
-    b_3d = Y.unsqueeze(-1)  # shape: (100, 100, 1)
+    # 合并网格点 (优化点7：高效内存布局)
+    grid = torch.stack([W, B], dim=-1)  # shape: (steps, steps, 2)
 
-    # 广播计算预测值 (100, 100, 10)
-    y_pred = w_3d * x_3d + b_3d
+    # 计算损失
+    with torch.no_grad():
+        loss = loss_func(grid)
 
-    # 计算损失 (100, 100)
-    loss = torch.mean((y_pred - y) ** 2, dim=2)
-    return X, Y, loss
+    return W.numpy(), B.numpy(), loss.numpy()
 
 
 if __name__ == "__main__":

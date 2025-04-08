@@ -38,8 +38,27 @@ def gradient_descent(func, init_params, lr=0.1, max_iters=100, tol=1e-6):
 
         params.grad.zero_()  # 清空梯度.
     params = params.detach()
-    print(f"Converged at iteration {iteration_n}, "
+    print(f"learning rate {lr}, Converged at iteration {iteration_n}, "
           f"Optimized parameters: {np.round(params.numpy(), 3)}, "
           f"Final loss: {loss_history[-1]}")
 
     return params, loss_history, points
+
+
+def loss_func(params):
+    """
+    定义损失函数 f(x,y) = x1^2 + 2 * x2^2.
+    :param params: 函数自变量张量，例如[x1,x2].
+    :return: 函数因变量.
+    """
+    c = torch.tensor([1, 2])
+
+    return torch.sum(c * params ** 2, dim=-1)
+
+
+if __name__ == '__main__':
+    initial_param = torch.tensor([10.0, 10.0], requires_grad=False)
+    gradient_descent(func=loss_func,
+                     init_params=initial_param,
+                     lr=0.1,
+                     max_iters=10000)
