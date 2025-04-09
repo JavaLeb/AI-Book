@@ -69,6 +69,6 @@ if __name__ == "__main__":
                                         init_params=initial_params[i],
                                         lr=lr,
                                         max_iters=10000)
-        plot_contour()  # 绘制等高线.
         plot_points(points, lr)  # 绘制参数迭代路径.
+    plot_contour()  # 绘制等高线.
     plt.show()
