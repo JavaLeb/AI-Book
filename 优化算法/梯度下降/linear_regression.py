@@ -1,9 +1,6 @@
 import matplotlib.pyplot as plt
 import torch
-from loss import MSELoss
-from data import generate_data
-from plot import plot_contour_with_sample, plot_points
-from model import LinearModel
+from common import MSELoss, generate_data, plot_contour_with_sample, plot_points, LinearModel
 from gradient_descent import GradientDescent
 
 if __name__ == "__main__":

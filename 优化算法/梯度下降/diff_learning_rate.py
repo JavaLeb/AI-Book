@@ -1,8 +1,6 @@
 import torch
-from model import VirtualModel
-from loss import SquareFunction
+from common import VirtualModel, SquareFunction, plot_points, plot_contour
 from gradient_descent import GradientDescent
-from plot import plot_points, plot_contour
 import matplotlib.pyplot as plt
 
 if __name__ == "__main__":
@@ -21,5 +19,5 @@ if __name__ == "__main__":
         )
         model.fit()
         plot_points(model.points, lr)  # 绘制参数迭代路径.
-    plot_contour(loss,r=15,n=400)  # 绘制等高线.
+    plot_contour(loss, r=15, n=400)  # 绘制等高线.
     plt.show()

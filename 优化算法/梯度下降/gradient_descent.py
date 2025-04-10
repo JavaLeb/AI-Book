@@ -1,8 +1,3 @@
-import torch
-from model import VirtualModel
-from loss import SquareFunction
-
-
 class GradientDescent:
     """
     梯度下降法.
@@ -29,10 +24,17 @@ class GradientDescent:
             self.params.grad.zero_()  # 清空梯度.
 
 
-if __name__ == '__main__':
-    initial_param = torch.tensor([10.0, 10.0], requires_grad=True)
-    model = VirtualModel(
-        loss=SquareFunction(torch.tensor([1.0, 2.0])),
-        optimizer=GradientDescent(params=initial_param, lr=0.1)
-    )
-    model.fit()
+class StochasticGradientDescent:
+    """
+    随机梯度下降法：实现与梯度下降相同，不同在于训练时，样本损失不同.
+    """
+
+    def __init__(self, params, lr=0.01, tol=1e-6):
+        self.lr = lr
+        self.tol = tol
+        self.params = params
+
+    def step(self):
+        if self.params.grad is not None:
+            self.params.data -= self.lr * self.params.grad.data  # 自定义更新规则
+            self.params.grad.zero_()
