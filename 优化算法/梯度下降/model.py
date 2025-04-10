@@ -12,7 +12,7 @@ class VirtualModel:
         self.loss = loss
         self.optimizer = optimizer
         self.iteration_n = 0
-        self.params = self.optimizer.params[0]  # 取参数列表中的第一个张量
+        self.params = self.optimizer.params  # 取参数列表中的第一个张量
         self.points = []
 
     def fit(self, max_iters=10000):
@@ -39,7 +39,7 @@ class LinearModel:
         self.loss = loss
         self.optimizer = optimizer
         self.iteration_n = 0
-        self.weights = self.optimizer.params[0]
+        self.weights = self.optimizer.params
         self.points = []
         self.loss_history = []
 
