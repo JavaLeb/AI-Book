@@ -144,11 +144,11 @@ class SGDLinearModel(LinearModel):
             self.epoch_loss.append(sample_loss.item())  # 记录损失.
             sample_loss.backward()  # 计算梯度.
             self.optimizer.step()  # 参数更新.
-            self.points.append(self.params.clone().detach())  # 记录参数初始值.
-            loss = self.compute_loss(loss_X=X, loss_y=y)
-            self.loss_history.append(loss.item())  # 记录初始损失值.
             self.iteration_n += 1
-
+        self.points.append(self.params.clone().detach())  # 记录参数初始值.
+        loss = self.compute_loss(loss_X=X, loss_y=y)
+        self.loss_history.append(loss.item())  # 记录初始损失值.
+        self.epoch_n = epoch
 
 class SAGLinearModel(LinearModel):
     def __init__(self, in_features: int, out_features: int, loss, optimizer) -> None:
