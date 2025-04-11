@@ -45,39 +45,48 @@ class MSELoss:
     def forward(self, y_predict: Tensor, y_true: Tensor) -> Tensor:
         return torch.mean((y_predict - y_true) ** 2)
 
+    def forward_one(self, y_predict: Tensor, y_true: Tensor) -> Tensor:
+        return (y_predict - y_true) ** 2
+
 
 class VirtualModel:
     """
     虚拟模型.
     """
 
-    def __init__(self, loss, optimizer) -> None:
-        self.loss = loss
+    def __init__(self, optimizer) -> None:
         self.optimizer = optimizer
         self.iteration_n = 0
-        self.params = self.optimizer.params  # 取参数列表中的第一个张量
+        self.params = self.optimizer.params
         self.points = []
         self.loss_history = []
 
     def fit(self, epochs=10000):
+        self.points.append(self.params.clone().detach())  # 记录参数初始值.
+        loss = self.compute_loss()
+        self.loss_history.append(loss.item())  # 记录初始损失值.
         for epoch in range(epochs):  # epoch相当于算法中的t.
-            self.points.append(self.params.clone().detach())  # 记录参数每次迭代的值.
-            loss = self.loss.forward(self.params)  # 计算损失.
-            self.loss_history.append(loss.item())  # 记录损失.
             if self.iteration_n > 0 and abs(self.loss_history[-1] - self.loss_history[-2]) < self.optimizer.tol:
                 break
-            loss.backward()  # 计算梯度.
-            self.optimizer.step()  # 参数更新.
+            self.optimizer.step(loss)  # 参数更新.
+            self.points.append(self.params.clone().detach())  # 记录参数每次迭代的值.
+            loss = self.compute_loss()
+            self.loss_history.append(loss.item())  # 记录参数的损失值.
             self.iteration_n = epoch + 1  # 记录迭代步骤.
         print(f"learning rate {self.optimizer.lr}, Converged at iteration {self.iteration_n}, "
               f"Optimized parameters: {np.round(self.params.detach().numpy(), 3)}, "
               f"Final loss: {self.loss_history[-1]}")
 
+    def compute_loss(self):
+        return self.optimizer.loss.forward(self.params)
+
 
 class LinearModel(VirtualModel):
 
-    def __init__(self, in_features: int, out_features: int, loss, optimizer) -> None:
-        super().__init__(loss, optimizer)
+    def __init__(self, in_features: int, out_features: int, optimizer) -> None:
+        super().__init__(optimizer)
+        self.y = None
+        self.X = None
         self.in_features = in_features
         self.out_features = out_features
 
@@ -92,27 +101,21 @@ class LinearModel(VirtualModel):
         return X_augmented @ self.params.reshape(-1, 1)  # 矩阵乘法
 
     def fit(self, X=None, y=None, epochs=10000):
-        for epoch in range(epochs):
-            self.points.append(self.params.clone().detach())
-            y_hat = self.forward(X)
-            loss = self.loss.forward(y_predict=y_hat, y_true=y)
-            self.loss_history.append(loss.item())  # 记录损失.
-            # 检查收敛条件
-            if self.iteration_n > 0 and abs(self.loss_history[-1] - self.loss_history[-2]) < self.optimizer.tol:
-                break
-            loss.backward()  # 计算梯度.
-            self.optimizer.step()  # 参数更新.
-            self.iteration_n = epoch + 1
-        print(f"learning rate {self.optimizer.lr}, Converged at iteration {self.iteration_n}, "
-              f"Optimized parameters: {np.round(self.params.detach().numpy(), 3)}, "
-              f"Final loss: {self.loss_history[-1]}")
+        self.X = X
+        self.y = y
+        super().fit(epochs)
+
+    def compute_loss(self):
+        return self.optimizer.loss.forward(y_predict=self.forward(self.X), y_true=self.y)
 
 
 class SGDLinearModel(LinearModel):
-    def __init__(self, in_features: int, out_features: int, loss, optimizer) -> None:
-        super().__init__(in_features, out_features, loss, optimizer)
+    def __init__(self, in_features: int, out_features: int, optimizer) -> None:
+        super().__init__(in_features, out_features, optimizer)
 
     def fit(self, X=None, y=None, epochs=10000, batch_size=10, shuffled=True):
+        self.X = X
+        self.y = y
         n_samples, n_features = X.shape  # 获取样本数和特征数.
         epoch_n = 0
         epoch_loss = []
@@ -121,15 +124,59 @@ class SGDLinearModel(LinearModel):
                 shuffled_indices = np.random.permutation(n_samples)  # 样本序号打乱.
             else:
                 shuffled_indices = np.arange(n_samples)  # 固定顺序
-            loss = self.loss.forward(y_predict=self.forward(X), y_true=y)
+            loss = self.optimizer.loss.forward(y_predict=self.forward(X), y_true=y)
             self.loss_history.append(loss.item())  # 记录总损失.
             for start_idx in range(0, n_samples, batch_size):
                 end_idx = min(start_idx + batch_size, n_samples)
                 batch_indices = shuffled_indices[start_idx:end_idx]
                 y_hat = self.forward(X[batch_indices])
-                sample_loss = self.loss.forward(y_predict=y_hat, y_true=y[batch_indices])
+                sample_loss = self.optimizer.loss.forward(y_predict=y_hat, y_true=y[batch_indices])
                 epoch_loss.append(sample_loss.item())  # 记录损失.
                 sample_loss.backward()  # 计算梯度.
+                self.optimizer.step()  # 参数更新.
+                self.iteration_n += 1
+            # 检查收敛条件
+            if epoch > 0 and abs(self.loss_history[-1] - self.loss_history[-2]) < self.optimizer.tol:
+                break
+            epoch_n = epoch
+        print(f"batch size {batch_size}, "
+              f"learning rate {self.optimizer.lr}, Converged at epoch {epoch_n}, iteration {self.iteration_n}, "
+              f"Optimized parameters: {np.round(self.params.detach().numpy(), 3)}, "
+              f"Final loss: {self.loss_history[-1]}")
+
+
+class SAGLinearModel(LinearModel):
+    def __init__(self, in_features: int, out_features: int, loss, optimizer) -> None:
+        super().__init__(in_features, out_features, loss, optimizer)
+
+    def fit(self, X=None, y=None, epochs=10000, batch_size=10, shuffled=True):
+        n_samples, n_features = X.shape  # 获取样本数和特征数.
+        epoch_n = 0
+        epoch_loss = []
+
+        sample_losses = self.loss.forward_one(y_predict=self.forward(X), y_true=y)  # 记录每个样本的损失.
+
+        old_average_loss = torch.mean(sample_losses)
+
+        for epoch in range(epochs):
+            if shuffled:
+                shuffled_indices = np.random.permutation(n_samples)  # 样本序号打乱.
+            else:
+                shuffled_indices = np.arange(n_samples)  # 固定顺序
+
+            self.loss_history.append(loss.item())  # 记录总损失.
+            for start_idx in range(0, n_samples, batch_size):
+                end_idx = min(start_idx + batch_size, n_samples)
+                batch_indices = shuffled_indices[start_idx:end_idx]
+                y_hat = self.forward(X[batch_indices])
+
+                sample_loss = self.loss.forward_one(y_predict=y_hat, y_true=y[batch_indices])
+                sum = torch.sum(sample_loss) - torch.sum(old_average_loss[batch_indices])
+                new_average_loss = old_average_loss + sum / n_samples
+
+                epoch_loss.append(sample_loss.item())  # 记录损失.
+                sample_loss.backward()  # 计算梯度.
+
                 self.optimizer.step()  # 参数更新.
                 self.iteration_n += 1
             # 检查收敛条件

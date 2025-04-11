@@ -14,8 +14,7 @@ if __name__ == "__main__":
     for i in range(len(learning_rates)):
         lr = learning_rates[i]
         model = VirtualModel(
-            loss=loss,
-            optimizer=GradientDescent(params=initial_params[i], lr=lr)
+            optimizer=GradientDescent(loss=loss, params=initial_params[i], lr=lr)
         )
         model.fit()
         plot_points(model.points, lr)  # 绘制参数迭代路径.

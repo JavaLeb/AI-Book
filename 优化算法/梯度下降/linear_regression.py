@@ -11,8 +11,7 @@ if __name__ == "__main__":
     model = LinearModel(
         in_features=1,
         out_features=1,
-        loss=MSELoss(),
-        optimizer=GradientDescent(params=init_params, lr=lr)  # 直接传递模型参数
+        optimizer=GradientDescent(loss,params=init_params, lr=lr)  # 直接传递模型参数
     )
     model.fit(X, y)
     plt.plot(model.loss_history)  # 学习曲线.
