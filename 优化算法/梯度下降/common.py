@@ -57,36 +57,47 @@ class VirtualModel:
     def __init__(self, optimizer) -> None:
         self.optimizer = optimizer
         self.iteration_n = 0
+        self.epoch_n = 0
         self.params = self.optimizer.params
         self.points = []
         self.loss_history = []
+        self.batch_size = None
 
-    def fit(self, epochs=10000):
-        self.points.append(self.params.clone().detach())  # 记录参数初始值.
-        loss = self.compute_loss()
-        self.loss_history.append(loss.item())  # 记录初始损失值.
+    def fit(self, X=None, y=None, epochs=10000):
+        loss = self.record_init(X, y)
         for epoch in range(epochs):  # epoch相当于算法中的t.
             if self.iteration_n > 0 and abs(self.loss_history[-1] - self.loss_history[-2]) < self.optimizer.tol:
                 break
-            self.optimizer.step(loss)  # 参数更新.
-            self.points.append(self.params.clone().detach())  # 记录参数每次迭代的值.
-            loss = self.compute_loss()
-            self.loss_history.append(loss.item())  # 记录参数的损失值.
-            self.iteration_n = epoch + 1  # 记录迭代步骤.
-        print(f"learning rate {self.optimizer.lr}, Converged at iteration {self.iteration_n}, "
+            loss = self.epoch(X, y, loss, epoch)
+        print(f"batch size {self.batch_size}, "
+              f"learning rate {self.optimizer.lr}, Converged at epoch {self.epoch_n}, iteration {self.iteration_n}, "
               f"Optimized parameters: {np.round(self.params.detach().numpy(), 3)}, "
               f"Final loss: {self.loss_history[-1]}")
 
-    def compute_loss(self):
+    def compute_loss(self, loss_X=None, loss_y=None):
         return self.optimizer.loss.forward(self.params)
+
+    def record_init(self, X=None, y=None):
+        self.points.append(self.params.clone().detach())  # 记录参数初始值.
+        loss = self.compute_loss(loss_X=X, loss_y=y)
+        self.loss_history.append(loss.item())  # 记录初始损失值.
+        return loss
+
+    def epoch(self, X, y, loss, epoch):
+        self.optimizer.step(loss)  # 参数更新.
+        self.points.append(self.params.clone().detach())  # 记录参数每次迭代的值.
+        loss = self.compute_loss(loss_X=X, loss_y=y)
+        self.loss_history.append(loss.item())  # 记录参数的损失值.
+        self.iteration_n = epoch + 1  # 记录迭代步骤.
+        self.epoch_n = epoch
+
+        return loss
 
 
 class LinearModel(VirtualModel):
 
     def __init__(self, in_features: int, out_features: int, optimizer) -> None:
         super().__init__(optimizer)
-        self.y = None
-        self.X = None
         self.in_features = in_features
         self.out_features = out_features
 
@@ -101,48 +112,42 @@ class LinearModel(VirtualModel):
         return X_augmented @ self.params.reshape(-1, 1)  # 矩阵乘法
 
     def fit(self, X=None, y=None, epochs=10000):
-        self.X = X
-        self.y = y
-        super().fit(epochs)
+        super().fit(X, y, epochs)
 
-    def compute_loss(self):
-        return self.optimizer.loss.forward(y_predict=self.forward(self.X), y_true=self.y)
+    def compute_loss(self, loss_X=None, loss_y=None):
+        return self.optimizer.loss.forward(y_predict=self.forward(loss_X), y_true=loss_y)
 
 
 class SGDLinearModel(LinearModel):
     def __init__(self, in_features: int, out_features: int, optimizer) -> None:
+        self.epoch_loss = []
+        self.n_samples = None
+        self.n_features = None
+        self.shuffled = True
         super().__init__(in_features, out_features, optimizer)
 
     def fit(self, X=None, y=None, epochs=10000, batch_size=10, shuffled=True):
-        self.X = X
-        self.y = y
-        n_samples, n_features = X.shape  # 获取样本数和特征数.
-        epoch_n = 0
-        epoch_loss = []
-        for epoch in range(epochs):
-            if shuffled:
-                shuffled_indices = np.random.permutation(n_samples)  # 样本序号打乱.
-            else:
-                shuffled_indices = np.arange(n_samples)  # 固定顺序
-            loss = self.optimizer.loss.forward(y_predict=self.forward(X), y_true=y)
-            self.loss_history.append(loss.item())  # 记录总损失.
-            for start_idx in range(0, n_samples, batch_size):
-                end_idx = min(start_idx + batch_size, n_samples)
-                batch_indices = shuffled_indices[start_idx:end_idx]
-                y_hat = self.forward(X[batch_indices])
-                sample_loss = self.optimizer.loss.forward(y_predict=y_hat, y_true=y[batch_indices])
-                epoch_loss.append(sample_loss.item())  # 记录损失.
-                sample_loss.backward()  # 计算梯度.
-                self.optimizer.step()  # 参数更新.
-                self.iteration_n += 1
-            # 检查收敛条件
-            if epoch > 0 and abs(self.loss_history[-1] - self.loss_history[-2]) < self.optimizer.tol:
-                break
-            epoch_n = epoch
-        print(f"batch size {batch_size}, "
-              f"learning rate {self.optimizer.lr}, Converged at epoch {epoch_n}, iteration {self.iteration_n}, "
-              f"Optimized parameters: {np.round(self.params.detach().numpy(), 3)}, "
-              f"Final loss: {self.loss_history[-1]}")
+        self.n_samples, self.n_features = X.shape  # 获取样本数和特征数.
+        self.batch_size = batch_size
+        self.shuffled = shuffled
+        super().fit(X, y, epochs)
+
+    def epoch(self, X, y, loss, epoch):
+        if self.shuffled:
+            shuffled_indices = np.random.permutation(self.n_samples)  # 样本序号打乱.
+        else:
+            shuffled_indices = np.arange(self.n_samples)  # 固定顺序
+        for start_idx in range(0, self.n_samples, self.batch_size):
+            end_idx = min(start_idx + self.batch_size, self.n_samples)
+            batch_indices = shuffled_indices[start_idx:end_idx]
+            sample_loss = self.compute_loss(loss_X=X[batch_indices], loss_y=y[batch_indices])
+            self.epoch_loss.append(sample_loss.item())  # 记录损失.
+            sample_loss.backward()  # 计算梯度.
+            self.optimizer.step()  # 参数更新.
+            self.points.append(self.params.clone().detach())  # 记录参数初始值.
+            loss = self.compute_loss(loss_X=X, loss_y=y)
+            self.loss_history.append(loss.item())  # 记录初始损失值.
+            self.iteration_n += 1
 
 
 class SAGLinearModel(LinearModel):
