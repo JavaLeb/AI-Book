@@ -56,7 +56,7 @@ class VirtualModel:
 
     def __init__(self, optimizer) -> None:
         self.optimizer = optimizer
-        self.iteration_n = 0
+        self.iteration_k = 0
         self.epoch_n = 0
         self.params = self.optimizer.params
         self.points = []
@@ -66,11 +66,11 @@ class VirtualModel:
     def fit(self, X=None, y=None, epochs=10000):
         loss = self.record_init(X, y)
         for epoch in range(epochs):  # epoch相当于算法中的t.
-            if self.iteration_n > 0 and abs(self.loss_history[-1] - self.loss_history[-2]) < self.optimizer.tol:
+            if self.iteration_k > 0 and abs(self.loss_history[-1] - self.loss_history[-2]) < self.optimizer.tol:
                 break
             loss = self.epoch(X, y, loss, epoch)
         print(f"batch size {self.batch_size}, "
-              f"learning rate {self.optimizer.lr}, Converged at epoch {self.epoch_n}, iteration {self.iteration_n}, "
+              f"learning rate {self.optimizer.lr}, Converged at epoch {self.epoch_n}, iteration {self.iteration_k}, "
               f"Optimized parameters: {np.round(self.params.detach().numpy(), 3)}, "
               f"Final loss: {self.loss_history[-1]}")
 
@@ -88,8 +88,8 @@ class VirtualModel:
         self.points.append(self.params.clone().detach())  # 记录参数每次迭代的值.
         loss = self.compute_loss(loss_X=X, loss_y=y)
         self.loss_history.append(loss.item())  # 记录参数的损失值.
-        self.iteration_n = epoch + 1  # 记录迭代步骤.
-        self.epoch_n = epoch
+        self.iteration_k = epoch + 1  # 记录迭代步骤.
+        self.epoch_n = epoch + 1
 
         return loss
 
@@ -144,11 +144,12 @@ class SGDLinearModel(LinearModel):
             self.epoch_loss.append(sample_loss.item())  # 记录损失.
             sample_loss.backward()  # 计算梯度.
             self.optimizer.step()  # 参数更新.
-            self.iteration_n += 1
+            self.iteration_k += 1
         self.points.append(self.params.clone().detach())  # 记录参数初始值.
         loss = self.compute_loss(loss_X=X, loss_y=y)
         self.loss_history.append(loss.item())  # 记录初始损失值.
         self.epoch_n = epoch
+
 
 class SAGLinearModel(LinearModel):
     def __init__(self, in_features: int, out_features: int, loss, optimizer) -> None:
@@ -183,13 +184,13 @@ class SAGLinearModel(LinearModel):
                 sample_loss.backward()  # 计算梯度.
 
                 self.optimizer.step()  # 参数更新.
-                self.iteration_n += 1
+                self.iteration_k += 1
             # 检查收敛条件
             if epoch > 0 and abs(self.loss_history[-1] - self.loss_history[-2]) < self.optimizer.tol:
                 break
             epoch_n = epoch
         print(f"batch size {batch_size}, "
-              f"learning rate {self.optimizer.lr}, Converged at epoch {epoch_n}, iteration {self.iteration_n}, "
+              f"learning rate {self.optimizer.lr}, Converged at epoch {epoch_n}, iteration {self.iteration_k}, "
               f"Optimized parameters: {np.round(self.params.detach().numpy(), 3)}, "
               f"Final loss: {self.loss_history[-1]}")
 
