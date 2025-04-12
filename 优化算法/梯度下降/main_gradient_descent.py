@@ -15,6 +15,7 @@ if __name__ == '__main__':
     model.fit()
 
     # 线性回归.
+    initial_param = torch.tensor([10.0, 10.0], requires_grad=True)
     X, y = generate_data()  # X:Tensor(10,1), y:Tensor(10,1)
     loss = MSELoss()
     lr = 0.01
