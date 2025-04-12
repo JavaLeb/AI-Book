@@ -1,7 +1,7 @@
 import torch
 from common import VirtualModel
 from common import SquareFunction
-from gradient_descent import GradientDescent
+from optimizer import GradientDescent
 
 import matplotlib.pyplot as plt
 from common import MSELoss, generate_data, plot_contour_with_sample, plot_points, LinearModel

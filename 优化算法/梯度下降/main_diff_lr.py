@@ -1,6 +1,6 @@
 import torch
 from common import VirtualModel, SquareFunction, plot_points, plot_contour
-from gradient_descent import GradientDescent
+from optimizer import GradientDescent
 import matplotlib.pyplot as plt
 
 if __name__ == "__main__":

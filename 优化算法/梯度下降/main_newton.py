@@ -1,6 +1,6 @@
 import torch
 from common import VirtualModel, SquareFunction, plot_points, plot_contour
-from gradient_descent import NewtonGradient
+from optimizer import NewtonGradient
 import matplotlib.pyplot as plt
 
 if __name__ == "__main__":

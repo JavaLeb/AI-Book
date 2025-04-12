@@ -1,7 +1,7 @@
 import torch
 from common import LinearModel
 from common import generate_data
-from gradient_descent import StochasticAverageGradient
+from optimizer import StochasticAverageGradient
 from common import MSELoss
 
 if __name__ == '__main__':
