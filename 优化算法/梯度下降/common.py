@@ -5,43 +5,57 @@ import matplotlib.pyplot as plt
 
 
 def generate_data():
-    torch.manual_seed(42)
-    n_samples = 10
-    x = torch.linspace(0, 10, n_samples)  # shape: (10,).
-    true_w, true_b = 2.0, 1.0
-    y = true_w * x + true_b + torch.randn(x.size()) * 1.5  # shape: (10,)
-    X = x.reshape(-1, 1)  # shape: (10,1)
-    y = y.reshape(-1, 1)  # shape: (10,1)
+    """
+    生成一元线性回归样本数据.
+    :return: 数据.
+    """
+    torch.manual_seed(42)  # 设置种子，保证每次运行生成的数据一样.
+    n_samples = 10  # 样本数.
+    x = torch.linspace(0, 10, n_samples)  # 生成特征数据. shape:(10,).
+    true_w, true_b = 2.0, 1.0  # 参数的理论值.
+    y = true_w * x + true_b + torch.randn(x.size()) * 1.5  # 生成标签. shape: (10,)
+    X, y = x.reshape(-1, 1), y.reshape(-1, 1)  # 变换数据的维度. shape: (10,1)
 
     return X, y
 
 
 class SquareFunction:
     """
-    函数f(x,y) = c1 * x1^2 + c2 * x2^2.
+    函数f(x1,x2,...,xn) = c1 * x1^2 + c2 * x2^2 + ... + cn * xn^2.
     """
 
     def __init__(self, c: Tensor) -> None:
         """
 
-        :param c:   shape=Tensor(n,)
+        :param c:   系数, shape=Tensor(n,).
         """
         self.c = c
 
     def forward(self, params: Tensor) -> Tensor:
         """
-
-        :param params: shape=Tensor(n,)
+        计算函数值.
+        :param params: 函数自变量, shape=Tensor(n,).
         :return: 沿最后一个维度求和. 例如shape(n,)只有一个维度，求和后维度为shape=Tensor(),零维（标量）.
         """
         return torch.sum(self.c * params ** 2, dim=-1)
 
 
 class MSELoss:
+    """
+    均方误差损失函数.
+    """
+
     def __init__(self) -> None:
         pass
 
     def forward(self, y_predict: Tensor, y_true: Tensor, reduction='mean') -> Tensor:
+        """
+
+        :param y_predict: 预测标签值值.
+        :param y_true: 真实标签值.
+        :param reduction: 如何计算损失，mean: 平均，sum: 和，其它值: 什么也不做.
+        :return:
+        """
         if reduction == 'mean':
             return torch.mean((y_predict - y_true) ** 2)
         elif reduction == 'sum':
@@ -56,124 +70,122 @@ class VirtualModel:
     """
 
     def __init__(self, optimizer) -> None:
-        self.optimizer = optimizer
-        self.iteration_k = 0
-        self.epoch_n = 0
-        self.params = self.optimizer.params
-        self.points = []
-        self.loss_history = []
-        self.batch_size = None
+        """
+
+        :param optimizer: 优化器.
+        """
+        self.loss = None  # 损失值.
+        self.optimizer = optimizer  # 优化器.
+        self.iteration_k = 0  # 最终的迭代k.
+        self.epoch_n = 0  # 轮数，遍历一遍数据集，算一轮.
+        self.params = self.optimizer.params  # 优化器参数.
+        self.points = []  # 参数点.
+        self.loss_history = []  # 历史损失值.
+        self.batch_size = None  # 批大小.
 
     def fit(self, X=None, y=None, epochs=10000):
-        loss = self.record_init(X, y)
-        for epoch in range(epochs):  # epoch相当于算法中的t.
+        """
+
+        :param X: 特征数据.
+        :param y: 标签数据.
+        :param epochs: 训练轮数.
+        :return:
+        """
+        self.record()  # 记录参数点和损失值.
+        for epoch in range(epochs):  # 循环训练.
+            # 训练退出条件：当前损失值与上一次损失值误差小于给定阈值则退出.
             if self.iteration_k > 0 and abs(self.loss_history[-1] - self.loss_history[-2]) < self.optimizer.tol:
                 break
-            loss = self.epoch(X, y, loss, epoch)
+            self.epoch(X, y, epoch)
         print(f"batch size {self.batch_size}, "
               f"learning rate {self.optimizer.lr}, Converged at epoch {self.epoch_n}, iteration {self.iteration_k}, "
               f"Optimized parameters: {np.round(self.params.detach().numpy(), 3)}, "
               f"Final loss: {self.loss_history[-1]}")
 
-    def compute_loss(self, loss_X=None, loss_y=None):
-        return self.optimizer.loss.forward(self.params)
-
-    def record_init(self, X=None, y=None):
+    def record(self):
         self.points.append(self.params.clone().detach())  # 记录参数初始值.
-        loss = self.compute_loss(loss_X=X, loss_y=y)
-        self.loss_history.append(loss.item())  # 记录初始损失值.
-        return loss
+        self.loss = self.optimizer.loss.forward(self.params)  # 计算初始参数的损失值.
+        self.loss_history.append(self.loss.item())  # 记录初始损失值.
 
-    def epoch(self, X, y, loss, epoch):
-        self.optimizer.step(loss)  # 参数更新.
-        self.points.append(self.params.clone().detach())  # 记录参数每次迭代的值.
-        loss = self.compute_loss(loss_X=X, loss_y=y)
-        self.loss_history.append(loss.item())  # 记录参数的损失值.
-        self.iteration_k = epoch + 1  # 记录迭代步骤.
+    def epoch(self, X, y, epoch):
+        """
+        一轮.
+        :param X: 特征数据.
+        :param y: 标签数据.
+        :param epoch: 当前轮.
+        :return:
+        """
+        self.optimizer.step(model=self)  # 参数优化.
+        self.record()  # 记录参数点和损失值.
+        self.iteration_k = epoch + 1
         self.epoch_n = epoch + 1
-
-        return loss
 
 
 class LinearModel(VirtualModel):
-
     def __init__(self, in_features: int, out_features: int, optimizer) -> None:
+        """
+        线性模型初始化方法.
+        :param in_features: 输入特征数.
+        :param out_features: 输出标签数.
+        :param optimizer: 优化器.
+        """
         super().__init__(optimizer)
-        self.in_features = in_features
-        self.out_features = out_features
-
-    def _add_bias_term(self, X: Tensor) -> Tensor:
-        """为输入数据添加全 1 的偏置列"""
-        batch_size = X.shape[0]
-        ones = torch.ones((batch_size, 1))  # 添加的常数列
-        return torch.cat([X, ones], dim=1)  # 沿特征维度拼接
+        self.y = None  # 标签数据.
+        self.X = None  # 特征数据.
+        self.batch_indices = None  # 每次随机选取的样本索引.
+        self.in_features = in_features  # 输入特征数.
+        self.out_features = out_features  # 输出特征数.
+        self.epoch_loss = []  # 每轮的损失.
+        self.n_samples = None  # 样本数.
+        self.n_features = None  # 特征数.
+        self.shuffled = True  # 是否打乱数据.
+        self.average_grads = None  # 平均梯度.
+        self.samples_grads = None  # 样本梯度.
 
     def forward(self, X: Tensor) -> Tensor:
-        X_augmented = self._add_bias_term(X)  # 添加偏置列
+        """
+        计算预测标签值.
+        :param X: 特征值.
+        :return: 预测标签值.
+        """
+
+        ones = torch.ones((X.shape[0], 1))  # 添加的常数列
+        X_augmented = torch.cat([X, ones], dim=1)  # 沿特征维度拼接
+
         return X_augmented @ self.params.reshape(-1, 1)  # 矩阵乘法
 
-    def compute_loss(self, loss_X=None, loss_y=None):
-        return self.optimizer.loss.forward(y_predict=self.forward(loss_X), y_true=loss_y)
-
-
-class SGDLinearModel(LinearModel):
-    def __init__(self, in_features: int, out_features: int, optimizer) -> None:
-        self.epoch_loss = []
-        self.n_samples = None
-        self.n_features = None
-        self.shuffled = True
-        super().__init__(in_features, out_features, optimizer)
-
-    def init_fit(self, X, batch_size, shuffled):
+    def fit(self, X=None, y=None, epochs=10000, batch_size=None, shuffled=True):
+        self.X, self.y = X, y
         self.n_samples, self.n_features = X.shape  # 获取样本数和特征数.
-        self.batch_size = batch_size
+        if batch_size is not None:
+            self.batch_size = batch_size
+        else:
+            self.batch_size = self.n_samples
         self.shuffled = shuffled
+        # 样本梯度，记录每个样本的梯度.
+        self.samples_grads = torch.zeros(self.n_samples, self.in_features + 1)  # shape=(n_sample,feature+1)
+        # 整个数据集D的梯度.
+        self.average_grads = torch.mean(self.samples_grads, dim=0)  # shape=(feature+1,0)
 
-    def fit(self, X=None, y=None, epochs=10000, batch_size=10, shuffled=True):
-        self.init_fit(X, batch_size, shuffled)
         super().fit(X, y, epochs)
 
-    def epoch(self, X, y, loss, epoch):
+    def epoch(self, X, y, epoch):
         if self.shuffled:
             shuffled_indices = np.random.permutation(self.n_samples)  # 样本序号打乱.
         else:
             shuffled_indices = np.arange(self.n_samples)  # 固定顺序
         for start_idx in range(0, self.n_samples, self.batch_size):
             end_idx = min(start_idx + self.batch_size, self.n_samples)
-            batch_indices = shuffled_indices[start_idx:end_idx]
-            self.step(X, y, batch_indices)
+            self.batch_indices = shuffled_indices[start_idx:end_idx]
+            self.optimizer.step(model=self)  # 参数更新.
             self.iteration_k += 1
-        self.points.append(self.params.clone().detach())  # 记录参数初始值.
-        loss = self.compute_loss(loss_X=X, loss_y=y)
-        self.loss_history.append(loss.item())  # 记录初始损失值.
+        self.record()
         self.epoch_n = epoch + 1
 
-    def step(self, X, y, batch_indices):
-        mini_loss = self.compute_loss(loss_X=X[batch_indices], loss_y=y[batch_indices])
-        self.optimizer.step(mini_loss)  # 参数更新.
-
-
-class SAGLinearModel(SGDLinearModel):
-    def __init__(self, in_features: int, out_features: int, optimizer) -> None:
-        super().__init__(in_features, out_features, optimizer)
-        self.average_grads = None
-        self.samples_grads = None
-
-    def init_fit(self, X, batch_size, shuffled):
-        super().init_fit(X, batch_size, shuffled)
-        # 样本梯度，记录每个样本的梯度.
-        self.samples_grads = torch.zeros(self.n_samples, self.in_features + 1)  # shape=(n_sample,feature+1)
-        # 整个数据集D的梯度.
-        self.average_grads = torch.mean(self.samples_grads, dim=0)  # shape=(feature+1,0)
-
-    def step(self, X, y, batch_indices):
-        mini_loss = self.optimizer.loss.forward(y_predict=self.forward(X[batch_indices]),
-                                                y_true=y[batch_indices], reduction=None)
-        self.optimizer.step(mini_loss=mini_loss,
-                            samples_grads=self.samples_grads,
-                            average_grads=self.average_grads,
-                            batch_indices=batch_indices,
-                            n_samples=self.n_samples)  # 参数更新.
+    def record(self):
+        self.points.append(self.params.clone().detach())  # 记录参数初始值.
+        self.loss = self.optimizer.loss.forward(y_predict=self.forward(self.X), y_true=self.y)
+        self.loss_history.append(self.loss.item())  # 记录初始损失值.
 
 
 def plot_points(points, lr, annotate=True):

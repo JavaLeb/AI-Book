@@ -21,12 +21,12 @@ class GradientDescent:
         self.tol = tol
         self.params = params
 
-    def step(self, loss):
+    def step(self, model=None):
         """
         参数更新步骤.
         :param loss: 损失值.
         """
-        grad = torch.autograd.grad(loss, self.params, create_graph=True)[0]  # 手动计算梯度.
+        grad = torch.autograd.grad(model.loss, self.params, create_graph=True)[0]  # 手动计算梯度.
         self.params.data -= self.lr * grad.data  # 参数更新.
 
 
@@ -34,13 +34,12 @@ class NewtonGradient(GradientDescent):
     def __init__(self, loss, params, lr=0.01, tol=1e-6):
         super().__init__(loss, params, lr, tol)
 
-    def step(self, loss):
+    def step(self, model=None):
         """
         优化步骤.
-        :param loss: 损失值.
         :return:
         """
-        grad = torch.autograd.grad(loss, self.params, create_graph=True)[0]  # 手动计算梯度.
+        grad = torch.autograd.grad(model.loss, self.params, create_graph=True)[0]  # 手动计算梯度.
         hessian_matrix = self.compute_hessian(grad)  # 计算hessian矩阵.
         # from torch.autograd.functional import hessian  # 导入hessian函数.
         # hessian_matrix = hessian(self.loss.forward, self.params)  # 使用内置的hessian.
@@ -72,7 +71,9 @@ class StochasticGradientDescent(GradientDescent):
     def __init__(self, loss, params, lr=0.01, tol=1e-6):
         super().__init__(loss, params, lr, tol)
 
-    def step(self, mini_loss=None):
+    def step(self, model=None):
+        mini_loss = self.loss.forward(y_predict=model.forward(model.X[model.batch_indices]),
+                                      y_true=model.y[model.batch_indices])
         mini_loss.backward()  # 计算梯度.
         if self.params.grad is not None:
             self.params.data -= self.lr * self.params.grad.data  # 自定义更新规则
@@ -83,7 +84,9 @@ class StochasticAverageGradient(GradientDescent):
     def __init__(self, loss, params, lr=0.01, tol=1e-6):
         super().__init__(loss, params, lr, tol)
 
-    def step(self, mini_loss=None, samples_grads=None, average_grads=None, batch_indices=None, n_samples=None):
+    def step(self, loss=None, model=None):
+        mini_loss = self.loss.forward(y_predict=model.forward(model.X[model.batch_indices]),
+                                      y_true=model.y[model.batch_indices], reduction=None)
         # 计算小批量样本梯度矩阵.
         grads_per_sample = []
         for i in range(len(mini_loss)):
@@ -92,9 +95,9 @@ class StochasticAverageGradient(GradientDescent):
         mini_grad_matrix = torch.stack(grads_per_sample, dim=0)
         # 更新平均梯度.
         mini_grad_new_sum = torch.sum(mini_grad_matrix, dim=0)
-        mini_grad_old_sum = torch.sum(samples_grads[batch_indices], dim=0)
-        average_grads += (mini_grad_new_sum - mini_grad_old_sum) / n_samples
+        mini_grad_old_sum = torch.sum(model.samples_grads[model.batch_indices], dim=0)
+        model.average_grads += (mini_grad_new_sum - mini_grad_old_sum) / model.n_samples
         # 更新每个样本梯度.
-        samples_grads[batch_indices] = mini_grad_matrix
+        model.samples_grads[model.batch_indices] = mini_grad_matrix
         # 参数更新.
-        self.params.data -= self.lr * average_grads
+        self.params.data -= self.lr * model.average_grads
