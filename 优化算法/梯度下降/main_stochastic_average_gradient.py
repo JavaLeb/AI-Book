@@ -11,7 +11,6 @@ if __name__ == '__main__':
         model = SAGLinearModel(
             in_features=1,
             out_features=1,
-            loss=MSELoss(),
-            optimizer=StochasticAverageGradient(params=init_params, lr=0.01)
+            optimizer=StochasticAverageGradient(loss=MSELoss(), params=init_params, lr=0.01)
         )
         model.fit(X, y, epochs=20000, batch_size=batch_size, shuffled=False)

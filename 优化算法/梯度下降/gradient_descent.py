@@ -72,19 +72,29 @@ class StochasticGradientDescent(GradientDescent):
     def __init__(self, loss, params, lr=0.01, tol=1e-6):
         super().__init__(loss, params, lr, tol)
 
-    def step(self, loss=None):
+    def step(self, mini_loss=None):
+        mini_loss.backward()  # 计算梯度.
         if self.params.grad is not None:
             self.params.data -= self.lr * self.params.grad.data  # 自定义更新规则
             self.params.grad.zero_()
 
 
-class StochasticAverageGradient:
-    def __init__(self, params, lr=0.01, tol=1e-6):
-        self.lr = lr
-        self.tol = tol
-        self.params = params
+class StochasticAverageGradient(GradientDescent):
+    def __init__(self, loss, params, lr=0.01, tol=1e-6):
+        super().__init__(loss, params, lr, tol)
 
-    def step(self):
-        if self.params.grad is not None:
-            self.params.data -= self.lr * self.params.grad.data  # 自定义更新规则
-            self.params.grad.zero_()
+    def step(self, mini_loss=None, samples_grads=None, average_grads=None, batch_indices=None, n_samples=None):
+        # 计算小批量样本梯度矩阵.
+        grads_per_sample = []
+        for i in range(len(mini_loss)):
+            grad = torch.autograd.grad(mini_loss[i], self.params, retain_graph=True)[0]
+            grads_per_sample.append(grad)
+        mini_grad_matrix = torch.stack(grads_per_sample, dim=0)
+        # 更新平均梯度.
+        mini_grad_new_sum = torch.sum(mini_grad_matrix, dim=0)
+        mini_grad_old_sum = torch.sum(samples_grads[batch_indices], dim=0)
+        average_grads += (mini_grad_new_sum - mini_grad_old_sum) / n_samples
+        # 更新每个样本梯度.
+        samples_grads[batch_indices] = mini_grad_matrix
+        # 参数更新.
+        self.params.data -= self.lr * average_grads

@@ -12,7 +12,6 @@ def generate_data():
     y = true_w * x + true_b + torch.randn(x.size()) * 1.5  # shape: (10,)
     X = x.reshape(-1, 1)  # shape: (10,1)
     y = y.reshape(-1, 1)  # shape: (10,1)
-    print('X=', X, 'y=', y)
 
     return X, y
 
@@ -42,11 +41,13 @@ class MSELoss:
     def __init__(self) -> None:
         pass
 
-    def forward(self, y_predict: Tensor, y_true: Tensor) -> Tensor:
-        return torch.mean((y_predict - y_true) ** 2)
-
-    def forward_one(self, y_predict: Tensor, y_true: Tensor) -> Tensor:
-        return (y_predict - y_true) ** 2
+    def forward(self, y_predict: Tensor, y_true: Tensor, reduction='mean') -> Tensor:
+        if reduction == 'mean':
+            return torch.mean((y_predict - y_true) ** 2)
+        elif reduction == 'sum':
+            return torch.sum((y_predict - y_true) ** 2)
+        else:
+            return (y_predict - y_true) ** 2
 
 
 class VirtualModel:
@@ -111,9 +112,6 @@ class LinearModel(VirtualModel):
         X_augmented = self._add_bias_term(X)  # 添加偏置列
         return X_augmented @ self.params.reshape(-1, 1)  # 矩阵乘法
 
-    def fit(self, X=None, y=None, epochs=10000):
-        super().fit(X, y, epochs)
-
     def compute_loss(self, loss_X=None, loss_y=None):
         return self.optimizer.loss.forward(y_predict=self.forward(loss_X), y_true=loss_y)
 
@@ -126,10 +124,13 @@ class SGDLinearModel(LinearModel):
         self.shuffled = True
         super().__init__(in_features, out_features, optimizer)
 
-    def fit(self, X=None, y=None, epochs=10000, batch_size=10, shuffled=True):
+    def init_fit(self, X, batch_size, shuffled):
         self.n_samples, self.n_features = X.shape  # 获取样本数和特征数.
         self.batch_size = batch_size
         self.shuffled = shuffled
+
+    def fit(self, X=None, y=None, epochs=10000, batch_size=10, shuffled=True):
+        self.init_fit(X, batch_size, shuffled)
         super().fit(X, y, epochs)
 
     def epoch(self, X, y, loss, epoch):
@@ -140,59 +141,39 @@ class SGDLinearModel(LinearModel):
         for start_idx in range(0, self.n_samples, self.batch_size):
             end_idx = min(start_idx + self.batch_size, self.n_samples)
             batch_indices = shuffled_indices[start_idx:end_idx]
-            sample_loss = self.compute_loss(loss_X=X[batch_indices], loss_y=y[batch_indices])
-            self.epoch_loss.append(sample_loss.item())  # 记录损失.
-            sample_loss.backward()  # 计算梯度.
-            self.optimizer.step()  # 参数更新.
+            self.step(X, y, batch_indices)
             self.iteration_k += 1
         self.points.append(self.params.clone().detach())  # 记录参数初始值.
         loss = self.compute_loss(loss_X=X, loss_y=y)
         self.loss_history.append(loss.item())  # 记录初始损失值.
-        self.epoch_n = epoch
+        self.epoch_n = epoch + 1
+
+    def step(self, X, y, batch_indices):
+        mini_loss = self.compute_loss(loss_X=X[batch_indices], loss_y=y[batch_indices])
+        self.optimizer.step(mini_loss)  # 参数更新.
 
 
-class SAGLinearModel(LinearModel):
-    def __init__(self, in_features: int, out_features: int, loss, optimizer) -> None:
-        super().__init__(in_features, out_features, loss, optimizer)
+class SAGLinearModel(SGDLinearModel):
+    def __init__(self, in_features: int, out_features: int, optimizer) -> None:
+        super().__init__(in_features, out_features, optimizer)
+        self.average_grads = None
+        self.samples_grads = None
 
-    def fit(self, X=None, y=None, epochs=10000, batch_size=10, shuffled=True):
-        n_samples, n_features = X.shape  # 获取样本数和特征数.
-        epoch_n = 0
-        epoch_loss = []
+    def init_fit(self, X, batch_size, shuffled):
+        super().init_fit(X, batch_size, shuffled)
+        # 样本梯度，记录每个样本的梯度.
+        self.samples_grads = torch.zeros(self.n_samples, self.in_features + 1)  # shape=(n_sample,feature+1)
+        # 整个数据集D的梯度.
+        self.average_grads = torch.mean(self.samples_grads, dim=0)  # shape=(feature+1,0)
 
-        sample_losses = self.loss.forward_one(y_predict=self.forward(X), y_true=y)  # 记录每个样本的损失.
-
-        old_average_loss = torch.mean(sample_losses)
-
-        for epoch in range(epochs):
-            if shuffled:
-                shuffled_indices = np.random.permutation(n_samples)  # 样本序号打乱.
-            else:
-                shuffled_indices = np.arange(n_samples)  # 固定顺序
-
-            self.loss_history.append(loss.item())  # 记录总损失.
-            for start_idx in range(0, n_samples, batch_size):
-                end_idx = min(start_idx + batch_size, n_samples)
-                batch_indices = shuffled_indices[start_idx:end_idx]
-                y_hat = self.forward(X[batch_indices])
-
-                sample_loss = self.loss.forward_one(y_predict=y_hat, y_true=y[batch_indices])
-                sum = torch.sum(sample_loss) - torch.sum(old_average_loss[batch_indices])
-                new_average_loss = old_average_loss + sum / n_samples
-
-                epoch_loss.append(sample_loss.item())  # 记录损失.
-                sample_loss.backward()  # 计算梯度.
-
-                self.optimizer.step()  # 参数更新.
-                self.iteration_k += 1
-            # 检查收敛条件
-            if epoch > 0 and abs(self.loss_history[-1] - self.loss_history[-2]) < self.optimizer.tol:
-                break
-            epoch_n = epoch
-        print(f"batch size {batch_size}, "
-              f"learning rate {self.optimizer.lr}, Converged at epoch {epoch_n}, iteration {self.iteration_k}, "
-              f"Optimized parameters: {np.round(self.params.detach().numpy(), 3)}, "
-              f"Final loss: {self.loss_history[-1]}")
+    def step(self, X, y, batch_indices):
+        mini_loss = self.optimizer.loss.forward(y_predict=self.forward(X[batch_indices]),
+                                                y_true=y[batch_indices], reduction=None)
+        self.optimizer.step(mini_loss=mini_loss,
+                            samples_grads=self.samples_grads,
+                            average_grads=self.average_grads,
+                            batch_indices=batch_indices,
+                            n_samples=self.n_samples)  # 参数更新.
 
 
 def plot_points(points, lr, annotate=True):
