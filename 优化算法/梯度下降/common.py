@@ -83,7 +83,7 @@ class VirtualModel:
         self.loss_history = []  # 历史损失值.
         self.batch_size = None  # 批大小.
 
-    def fit(self, X=None, y=None, epochs=10000):
+    def fit(self, X=None, y=None, epochs=2000):
         """
 
         :param X: 特征数据.
@@ -154,7 +154,7 @@ class LinearModel(VirtualModel):
 
         return X_augmented @ self.params.reshape(-1, 1)  # 矩阵乘法
 
-    def fit(self, X=None, y=None, epochs=10000, batch_size=None, shuffled=True):
+    def fit(self, X=None, y=None, epochs=2000, batch_size=None, shuffled=True):
         self.X, self.y = X, y
         self.n_samples, self.n_features = X.shape  # 获取样本数和特征数.
         if batch_size is not None:
@@ -222,7 +222,7 @@ def plot_contour(loss, r, n):
     plt.ylim(-r, r)
     plt.xlabel(r'$\theta_1$')
     plt.ylabel(r'$\theta_2$')
-    plt.title(r'Gradient Descent on $L(\mathbf{\theta})=\theta_1^2+2\theta_2^2$')
+    plt.title(r'Iterative path on $L(\mathbf{\theta})=\theta_1^2+2\theta_2^2$')
     plt.grid(True)
 
 
