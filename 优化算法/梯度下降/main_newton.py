@@ -9,7 +9,8 @@ if __name__ == "__main__":
     loss = SquareFunction(torch.tensor([1.0, 2.0]))
     lr = 1
     model = VirtualModel(
-        optimizer=NewtonGradient(loss, params=initial_params, lr=lr)
+        criterion=loss,
+        optimizer=NewtonGradient(params=initial_params, lr=lr)
     )
     model.fit()
     plot_points(model.points, lr)  # 绘制参数迭代路径.
