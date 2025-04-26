@@ -1,7 +1,7 @@
 import torch
 from common import LinearRegression
 from common import generate_data
-from optimizer import StochasticGradientDescent
+from optimizer import SGDOptimizer
 from common import MSELoss
 
 if __name__ == '__main__':
@@ -12,6 +12,6 @@ if __name__ == '__main__':
             in_features=1,
             out_features=1,
             criterion=MSELoss(),
-            optimizer=StochasticGradientDescent(params=init_params, lr=0.01)
+            optimizer=SGDOptimizer(params=init_params, lr=0.01)
         )
         model.fit(X, y, epochs=2000, batch_size=batch_size, shuffled=False)

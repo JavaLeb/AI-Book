@@ -2,44 +2,62 @@ import torch
 import numpy as np
 
 
-class GradientDescent:
-    """
-    梯度下降法.
-    """
+class VanillaUpdater:
+    """更新策略:默认实现原始的更新方式."""
 
-    def __init__(self, params, lr=0.01, tol=1e-6):
+    def __init__(self, params, lr):
         """
-        初始化方法.
         :param params: 参数.
         :param lr: 学习率.
-        :param tol: 优化停止误差阈值.
         """
         self.params = params
         self.lr = lr
-        self.tol = tol
-        self.model_flag = False
+        self.direction = None
 
-    def set_params(self, params):
-        self.params = params
+    def pre_update(self):
+        """参数更新前的计算"""
+        self.direction = self.params.grad
 
-    def set_lr(self, lr):
-        self.lr = lr
-
-    def grad(self, loss):
+    def update_params(self):
         """
-        计算损失梯度.
-        :param loss: 损失.
+        参数更新
+        :param direction: 参数更新方向.
+        :param lr: 学习率.
         :return:
         """
-        loss.backward()  # 自动计算梯度.
-
-    def step(self):
-        """
-        参数更新步骤.
-        """
         with torch.no_grad():
-            if self.params.grad is not None:
-                self.params.data -= self.lr * self.params.grad
+            self.params.data -= self.lr * self.direction
+
+
+class Optimizer:
+    """优化器基类"""
+
+    def __init__(self, updaters, params, lr=0.001, tol=1e-6, with_sgd=False):
+        """
+
+        :param params: 待优化参数.
+        :param updaters: 更新器.
+        """
+        self.updaters = updaters
+        self.params = params
+        self.tol = tol
+        self.lr = lr
+        self.with_sgd = with_sgd
+
+    def grad_model(self, model):
+
+        X = model.X[model.batch_indices] if self.with_sgd else model.X
+        y = model.y[model.batch_indices] if self.with_sgd else model.y
+        loss = model.criterion.forward(y_predict=model.forward(X), y_true=y)
+        self.grad_loss(loss)
+
+    def grad_loss(self, loss):
+        """
+        计算梯度.
+        :param loss: 损失值.
+        :return:
+        """
+        self.params.grad = torch.autograd.grad(loss, self.params, create_graph=True)[0]
 
     def zero_grad(self):
         """
@@ -49,23 +67,73 @@ class GradientDescent:
         if self.params.grad is not None:
             self.params.grad.zero_()
 
-
-class NewtonGradient(GradientDescent):
-    """
-    牛顿法.
-    """
-
-    def grad(self, loss):
-        self.grads = torch.autograd.grad(loss, self.params, create_graph=True)[0]
-
     def step(self):
         """
-        优化步骤.
+        顺序执行每个更新器，并应用更新策略.
         :return:
         """
+        for updater in self.updaters:
+            updater.pre_update()
+        for updater in self.updaters:
+            updater.update_params()
+
+
+class GDOptimizer(Optimizer):
+    """梯度下降法"""
+
+    def __init__(self, params, lr: float, with_sgd=False):
+        updaters = [VanillaUpdater(params=params, lr=lr)]
+        super().__init__(updaters=updaters, params=params, lr=lr, with_sgd=with_sgd)
+
+
+class MomentumUpdater(VanillaUpdater):
+    def __init__(self, params, lr, momentum=0.9, version=0):
+        """
+        :param params: 参数.
+        :param lr: 学习率.
+        :param momentum: 动量系数.
+        :param version: 动量实现版本.
+        """
+        super().__init__(params, lr)
+        self.momentum = momentum
+        self.m = torch.zeros_like(params)  # 动量.
+        self.alpha = [-self.lr, 1, -1][version]  # 根据实现版本，确定各系数的值.
+        self.gama = -self.lr / self.alpha
+
+    def pre_update(self):
+        """参数更新前的计算"""
+        self.m = self.momentum * self.m + self.alpha * self.params.grad  # 动量更新.
+        self.direction = self.m
+
+    def update_params(self):
+        """
+        参数更新
+        :param direction: 参数更新方向.
+        :param lr: 学习率.
+        :return:
+        """
+        with torch.no_grad():
+            if self.params.grad is not None:
+                self.params.data += self.gama * self.direction
+
+
+class MomentumOptimizer(Optimizer):
+    """
+    动量法优化器.
+    """
+
+    def __init__(self, params, lr=0.01, momentum=0.9, with_sgd=False, version=0):
+        updaters = [MomentumUpdater(params=params, lr=lr, momentum=momentum, version=version)]
+        super().__init__(updaters=updaters, params=params, with_sgd=with_sgd)
+
+
+class NewtonUpdater(VanillaUpdater):
+
+    def pre_update(self):
+        """参数更新前的计算"""
         hessian_matrix = self.compute_hessian()  # 计算hessian矩阵.
-        delta = np.linalg.solve(hessian_matrix, self.grads.data.numpy())  # H逆与梯度向量的乘积.
-        self.params.data -= self.lr * torch.from_numpy(delta).float()
+        delta = np.linalg.solve(hessian_matrix, self.params.grad.data.numpy())  # H逆与梯度向量的乘积.
+        self.direction = torch.from_numpy(delta).float()
 
     def compute_hessian(self):
         """
@@ -78,7 +146,7 @@ class NewtonGradient(GradientDescent):
 
         # 自定义计算Hessian矩阵.
         hessian_arr = []
-        for g in self.grads:
+        for g in self.params.grad:
             g2 = torch.autograd.grad(g, self.params, retain_graph=True)[0]
             hessian_arr.append(g2.data.numpy())
         hessian_matrix = np.array(hessian_arr)
@@ -87,27 +155,33 @@ class NewtonGradient(GradientDescent):
         return hessian_matrix
 
 
-class StochasticGradientDescent(GradientDescent):
+class NewtonOptimizer(Optimizer):
+    """
+    牛顿法.
+    """
+
+    def __init__(self, params, lr=0.01, with_sgd=False):
+        updaters = [NewtonUpdater(params=params, lr=lr)]
+        super().__init__(updaters=updaters, params=params, with_sgd=with_sgd)
+
+
+class SGDOptimizer(Optimizer):
     """
     随机梯度下降法：实现与梯度下降相同，不同在于训练时，样本损失不同.
     """
 
+    def __init__(self, params, lr):
+        updaters = [VanillaUpdater(params=params, lr=lr)]
+        self.with_sgd = True
+        super().__init__(updaters=updaters, params=params, lr=lr, with_sgd=self.with_sgd)
+
+
+class SAGOptimizer(Optimizer):
     def __init__(self, params, lr=0.01, tol=1e-6):
-        super().__init__(params, lr, tol)
-        self.model_flag = True
+        updaters = [NewtonUpdater(params=params, lr=lr)]
+        super().__init__(updaters=updaters, params=params)
 
-    def grad(self, model):
-        loss = model.criterion.forward(y_predict=model.forward(model.X[model.batch_indices]),
-                                       y_true=model.y[model.batch_indices])
-        super().grad(loss)
-
-
-class StochasticAverageGradient(StochasticGradientDescent):
-    def __init__(self, params, lr=0.01, tol=1e-6):
-        super().__init__(params, lr, tol)
-        self.average_grads = None
-
-    def grad(self, model):
+    def grad_model(self, model):
         y_hat = model.forward(model.X[model.batch_indices])
         mini_loss = model.criterion.forward(y_predict=y_hat,
                                             y_true=model.y[model.batch_indices], reduction=None)
@@ -121,40 +195,10 @@ class StochasticAverageGradient(StochasticGradientDescent):
         mini_grad_new_sum = torch.sum(mini_grad_matrix, dim=0)
         mini_grad_old_sum = torch.sum(model.samples_grads[model.batch_indices], dim=0)
         model.average_grads += (mini_grad_new_sum - mini_grad_old_sum) / model.n_samples
-        self.average_grads = model.average_grads
         # 更新每个样本梯度.
         model.samples_grads[model.batch_indices] = mini_grad_matrix
 
-    def step(self):
-        # 参数更新.
-        self.params.data -= self.lr * self.average_grads
-
-
-class MomentumOptimizer(GradientDescent):
-    """
-    动量法.
-    """
-
-    def __init__(self, params, lr=0.01, tol=1e-6, momentum=0.9):
-        super().__init__(params, lr, tol)
-        self.beta = momentum  # 一阶矩系数beta.
-        self.m = torch.zeros_like(params)  # 动量.
-
-    def step(self):
-        self.m = self.beta * self.m + self.params.grad  # 动量更新.
-        self.params.data += - self.lr * self.m  # 参数更新.
-
-
-class Momentum2Optimizer(MomentumOptimizer):
-    def step(self, model=None):
-        self.m = self.beta * self.m - self.lr * self.params.grad  # 动量更新.
-        self.params.data += self.m  # 参数更新.
-
-
-class Momentum3Optimizer(MomentumOptimizer):
-    def step(self, model=None):
-        self.m = self.beta * self.m - self.params.grad  # 动量更新.
-        self.params.data += self.lr * self.m  # 参数更新.
+        self.direction = model.average_grads
 
 
 class NestAcceleratedGradient(MomentumOptimizer):
@@ -204,7 +248,7 @@ class NestAcceleratedGradient(MomentumOptimizer):
     #     self.params.data = old_params_data - self.lr * self.m  # 参数更新.
 
 
-class AdaGrad(GradientDescent):
+class AdaGrad(GDOptimizer):
     """
     梯度下降法.
     """

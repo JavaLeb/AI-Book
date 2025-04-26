@@ -2,6 +2,7 @@ import torch
 from torch import Tensor
 import numpy as np
 import matplotlib.pyplot as plt
+from optimizer import SGDOptimizer
 
 
 def generate_data():
@@ -138,10 +139,7 @@ class VirtualModel:
 
     def optimize(self):
         self.optimizer.zero_grad()  # 清空梯度.
-        if self.optimizer.model_flag:
-            self.optimizer.grad(self)  # 计算梯度.
-        else:
-            self.optimizer.grad(self.loss)
+        self.optimizer.grad_loss(self.loss)
         self.optimizer.step()  # 更新参数.
 
 
@@ -215,6 +213,11 @@ class LinearRegression(VirtualModel):
         self.points.append(self.params.clone().detach())  # 记录参数初始值.
         self.loss = self.criterion.forward(y_predict=self.forward(self.X), y_true=self.y)  # 整体损失.
         self.loss_history.append(self.loss.item())  # 记录初始损失值.
+
+    def optimize(self):
+        self.optimizer.zero_grad()  # 清空梯度.
+        self.optimizer.grad_model(self)
+        self.optimizer.step()  # 更新参数.
 
 
 def plot_points(points, lr, annotate=True):

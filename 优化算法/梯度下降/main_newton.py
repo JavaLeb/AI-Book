@@ -1,6 +1,6 @@
 import torch
 from common import VirtualModel, SquareFunction, plot_points, plot_contour
-from optimizer import NewtonGradient
+from optimizer import NewtonOptimizer
 import matplotlib.pyplot as plt
 
 if __name__ == "__main__":
@@ -10,7 +10,7 @@ if __name__ == "__main__":
     lr = 1
     model = VirtualModel(
         criterion=loss,
-        optimizer=NewtonGradient(params=initial_params, lr=lr)
+        optimizer=NewtonOptimizer(params=initial_params, lr=lr)
     )
     model.fit()
     plot_points(model.points, lr)  # 绘制参数迭代路径.
