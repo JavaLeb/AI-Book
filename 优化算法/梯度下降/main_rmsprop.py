@@ -5,12 +5,14 @@ from optimizer import RMSProp
 
 import matplotlib.pyplot as plt
 from common import plot_contour, plot_points
-torch.optim.Adagrad
+
+
 if __name__ == '__main__':
     initial_param = torch.tensor([10.0, 10.0], requires_grad=True)
     loss = SquareFunction(torch.tensor([1.0, 2.0]))
     model = VirtualModel(
-        optimizer=RMSProp(loss=loss, params=initial_param, lr=1)
+        criterion=loss,
+        optimizer=RMSProp(params=initial_param, lr=1)
     )
     model.fit()
 
@@ -24,7 +26,8 @@ if __name__ == '__main__':
     for i in range(len(learning_rates)):
         lr = learning_rates[i]
         model = VirtualModel(
-            optimizer=RMSProp(loss=loss, params=initial_params[i], lr=lr)
+            criterion=loss,
+            optimizer=RMSProp(params=initial_params[i], lr=lr)
         )
         model.fit()
         plot_points(model.points, lr)  # 绘制参数迭代路径.

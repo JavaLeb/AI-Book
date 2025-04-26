@@ -2,7 +2,7 @@ import torch
 from torch import Tensor
 import numpy as np
 import matplotlib.pyplot as plt
-from optimizer import SGDOptimizer
+
 
 
 def generate_data():

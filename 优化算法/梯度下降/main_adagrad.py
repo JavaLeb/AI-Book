@@ -10,7 +10,8 @@ if __name__ == '__main__':
     initial_param = torch.tensor([10.0, 10.0], requires_grad=True)
     loss = SquareFunction(torch.tensor([1.0, 2.0]))
     model = VirtualModel(
-        optimizer=AdaGrad(loss=loss, params=initial_param, lr=10)
+        criterion=loss,
+        optimizer=AdaGrad(params=initial_param, lr=10)
     )
     model.fit()
 
@@ -24,7 +25,8 @@ if __name__ == '__main__':
     for i in range(len(learning_rates)):
         lr = learning_rates[i]
         model = VirtualModel(
-            optimizer=AdaGrad(loss=loss, params=initial_params[i], lr=lr)
+            criterion=loss,
+            optimizer=AdaGrad(params=initial_params[i], lr=lr)
         )
         model.fit()
         plot_points(model.points, lr)  # 绘制参数迭代路径.

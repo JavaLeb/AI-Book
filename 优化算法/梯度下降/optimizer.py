@@ -2,50 +2,22 @@ import torch
 import numpy as np
 
 
-class VanillaUpdater:
-    """更新策略:默认实现原始的更新方式."""
-
-    def __init__(self, params, lr):
-        """
-        :param params: 参数.
-        :param lr: 学习率.
-        """
-        self.params = params
-        self.lr = lr
-        self.direction = None
-
-    def pre_update(self):
-        """参数更新前的计算"""
-        self.direction = self.params.grad
-
-    def update_params(self):
-        """
-        参数更新
-        :param direction: 参数更新方向.
-        :param lr: 学习率.
-        :return:
-        """
-        with torch.no_grad():
-            self.params.data -= self.lr * self.direction
-
-
 class Optimizer:
     """优化器基类"""
 
-    def __init__(self, updaters, params, lr=0.001, tol=1e-6, with_sgd=False):
+    def __init__(self, params, lr=0.001, tol=1e-6, with_sgd=False):
         """
 
         :param params: 待优化参数.
         :param updaters: 更新器.
         """
-        self.updaters = updaters
+        self.direction = None
         self.params = params
         self.tol = tol
         self.lr = lr
         self.with_sgd = with_sgd
 
     def grad_model(self, model):
-
         X = model.X[model.batch_indices] if self.with_sgd else model.X
         y = model.y[model.batch_indices] if self.with_sgd else model.y
         loss = model.criterion.forward(y_predict=model.forward(X), y_true=y)
@@ -57,7 +29,7 @@ class Optimizer:
         :param loss: 损失值.
         :return:
         """
-        self.params.grad = torch.autograd.grad(loss, self.params, create_graph=True)[0]
+        self.direction = torch.autograd.grad(loss, self.params, create_graph=True)[0]
 
     def zero_grad(self):
         """
@@ -72,49 +44,15 @@ class Optimizer:
         顺序执行每个更新器，并应用更新策略.
         :return:
         """
-        for updater in self.updaters:
-            updater.pre_update()
-        for updater in self.updaters:
-            updater.update_params()
+        with torch.no_grad():
+            self.params.data -= self.lr * self.direction
 
 
 class GDOptimizer(Optimizer):
     """梯度下降法"""
 
-    def __init__(self, params, lr: float, with_sgd=False):
-        updaters = [VanillaUpdater(params=params, lr=lr)]
-        super().__init__(updaters=updaters, params=params, lr=lr, with_sgd=with_sgd)
-
-
-class MomentumUpdater(VanillaUpdater):
-    def __init__(self, params, lr, momentum=0.9, version=0):
-        """
-        :param params: 参数.
-        :param lr: 学习率.
-        :param momentum: 动量系数.
-        :param version: 动量实现版本.
-        """
-        super().__init__(params, lr)
-        self.momentum = momentum
-        self.m = torch.zeros_like(params)  # 动量.
-        self.alpha = [-self.lr, 1, -1][version]  # 根据实现版本，确定各系数的值.
-        self.gama = -self.lr / self.alpha
-
-    def pre_update(self):
-        """参数更新前的计算"""
-        self.m = self.momentum * self.m + self.alpha * self.params.grad  # 动量更新.
-        self.direction = self.m
-
-    def update_params(self):
-        """
-        参数更新
-        :param direction: 参数更新方向.
-        :param lr: 学习率.
-        :return:
-        """
-        with torch.no_grad():
-            if self.params.grad is not None:
-                self.params.data += self.gama * self.direction
+    def __init__(self, params, lr, with_sgd=False):
+        super().__init__(params=params, lr=lr, with_sgd=with_sgd)
 
 
 class MomentumOptimizer(Optimizer):
@@ -123,14 +61,75 @@ class MomentumOptimizer(Optimizer):
     """
 
     def __init__(self, params, lr=0.01, momentum=0.9, with_sgd=False, version=0):
-        updaters = [MomentumUpdater(params=params, lr=lr, momentum=momentum, version=version)]
-        super().__init__(updaters=updaters, params=params, with_sgd=with_sgd)
+        super().__init__(params=params, lr=lr, with_sgd=with_sgd)
+        self.momentum = momentum
+        self.m = torch.zeros_like(params)  # 动量.
+        self.alpha = [-self.lr, 1, -1][version]  # 根据实现版本，确定各系数的值.
+        self.gama = -self.lr / self.alpha
+
+    def grad_loss(self, loss):
+        """
+        计算梯度.
+        :param loss: 损失值.
+        :return:
+        """
+        self.params.grad = torch.autograd.grad(loss, self.params, create_graph=True)[0]
+        self.m = self.momentum * self.m + self.alpha * self.params.grad  # 动量更新.
+        self.direction = self.m
+
+    def step(self):
+        """
+        顺序执行每个更新器，并应用更新策略.
+        :return:
+        """
+        with torch.no_grad():
+            if self.params.grad is not None:
+                self.params.data += self.gama * self.direction
 
 
-class NewtonUpdater(VanillaUpdater):
+class RMSProp(Optimizer):
+    """
+    梯度下降法.
+    """
 
-    def pre_update(self):
-        """参数更新前的计算"""
+    def __init__(self, params, lr=0.01, delay_factor=0.9):
+        super().__init__(params, lr)
+        self.delay_factor = delay_factor
+        self.s = torch.zeros_like(params)  # 动量.
+        self.error = 1e-10
+
+    def grad_loss(self, loss):
+        self.params.grad = torch.autograd.grad(loss, self.params, create_graph=True)[0]  # 手动计算梯度.
+        self.s = self.delay_factor * self.s + (1 - self.delay_factor) * self.params.grad ** 2
+        self.direction = self.params.grad / torch.sqrt(self.s + self.error)  # 参数更新.
+
+
+class AdaGrad(Optimizer):
+    """
+    梯度下降法.
+    """
+
+    def __init__(self, params, lr=0.01):
+        super().__init__(params, lr)
+        self.s = torch.zeros_like(params)
+        self.error = 1e-10
+
+    def grad_loss(self, loss):
+        self.params.grad = torch.autograd.grad(loss, self.params, create_graph=True)[0]  # 手动计算梯度.
+        self.s = self.s + self.params.grad ** 2
+        self.direction = self.params.grad / torch.sqrt(self.s + self.error)  # 参数更新.
+
+
+class NewtonOptimizer(Optimizer):
+    """
+    牛顿法.
+    """
+
+    def __init__(self, params, lr=0.01, with_sgd=False):
+        super().__init__(params=params, lr=lr, with_sgd=with_sgd)
+
+    def grad_loss(self, loss):
+        self.params.grad = torch.autograd.grad(loss, self.params, create_graph=True)[0]  # 手动计算梯度.
         hessian_matrix = self.compute_hessian()  # 计算hessian矩阵.
         delta = np.linalg.solve(hessian_matrix, self.params.grad.data.numpy())  # H逆与梯度向量的乘积.
         self.direction = torch.from_numpy(delta).float()
@@ -155,31 +154,17 @@ class NewtonUpdater(VanillaUpdater):
         return hessian_matrix
 
 
-class NewtonOptimizer(Optimizer):
-    """
-    牛顿法.
-    """
-
-    def __init__(self, params, lr=0.01, with_sgd=False):
-        updaters = [NewtonUpdater(params=params, lr=lr)]
-        super().__init__(updaters=updaters, params=params, with_sgd=with_sgd)
-
-
 class SGDOptimizer(Optimizer):
     """
     随机梯度下降法：实现与梯度下降相同，不同在于训练时，样本损失不同.
     """
 
-    def __init__(self, params, lr):
-        updaters = [VanillaUpdater(params=params, lr=lr)]
+    def __init__(self, params, lr=0.01, with_sgd=False):
         self.with_sgd = True
-        super().__init__(updaters=updaters, params=params, lr=lr, with_sgd=self.with_sgd)
+        super().__init__(params=params, lr=lr, with_sgd=with_sgd)
 
 
 class SAGOptimizer(Optimizer):
-    def __init__(self, params, lr=0.01, tol=1e-6):
-        updaters = [NewtonUpdater(params=params, lr=lr)]
-        super().__init__(updaters=updaters, params=params)
 
     def grad_model(self, model):
         y_hat = model.forward(model.X[model.batch_indices])
@@ -200,104 +185,78 @@ class SAGOptimizer(Optimizer):
 
         self.direction = model.average_grads
 
+# class NestAcceleratedGradient(MomentumOptimizer):
+#     """
+#     梯度下降法.
+#     """
+#
+#     def __init__(self, loss, params, lr=0.01, tol=1e-6, momentum=0.9):
+#         super().__init__(loss, params, lr, tol, momentum)
+#
+#     def step(self, model=None):
+#         """
+#         动量加速等价形式.
+#         :param model:
+#         :return:
+#         """
+#
+#         grad = torch.autograd.grad(model.loss, self.params, create_graph=True)[0]  # 手动计算梯度.
+#         self.m = self.beta ** 2 * self.m + (self.beta + 1) * grad.data
+#         self.params.data -= self.lr * self.m  # 参数更新.
+#     # def step(self, model=None):
+#     #     """
+#     #     对动量加速.
+#     #     :param model:
+#     #     :return:
+#     #     """
+#     #
+#     #     grad = torch.autograd.grad(model.loss, self.params, create_graph=True)[0]  # 手动计算梯度.
+#     #     self.m = self.beta * self.m + grad.data
+#     #     self.m = self.beta * self.m + grad.data
+#     #     self.params.data -=  self.lr * self.m  # 参数更新.
+#
+#     # def step(self, model=None):
+#     #     old_params_data = self.params.data  # 临时存储data的值.
+#     #     # theta_tmp = theta_t + beta * m
+#     #     self.params.data = self.params.data + self.beta * self.m  # 下一步参数的值.
+#     #     grad = torch.autograd.grad(model.loss, self.params, create_graph=True)[0]  # 手动计算梯度.
+#     #     self.m = self.beta * self.m - self.lr * grad.data
+#     #     self.params.data = old_params_data + self.m  # 参数更新.
+#
+#     # def step(self, model=None):
+#     #     old_params_data = self.params.data  # 临时存储data的值.
+#     #     # theta_tmp = theta_t + beta * m
+#     #     self.params.data = self.params.data + self.beta * self.m  # 下一步参数的值.
+#     #     grad = torch.autograd.grad(model.loss, self.params, create_graph=True)[0]  # 手动计算梯度.
+#     #     self.m = self.beta * self.m + grad.data
+#     #     self.params.data = old_params_data - self.lr * self.m  # 参数更新.
+#
+#
 
-class NestAcceleratedGradient(MomentumOptimizer):
-    """
-    梯度下降法.
-    """
+#
+#
 
-    def __init__(self, loss, params, lr=0.01, tol=1e-6, momentum=0.9):
-        super().__init__(loss, params, lr, tol, momentum)
-
-    def step(self, model=None):
-        """
-        动量加速等价形式.
-        :param model:
-        :return:
-        """
-
-        grad = torch.autograd.grad(model.loss, self.params, create_graph=True)[0]  # 手动计算梯度.
-        self.m = self.beta ** 2 * self.m + (self.beta + 1) * grad.data
-        self.params.data -= self.lr * self.m  # 参数更新.
-    # def step(self, model=None):
-    #     """
-    #     对动量加速.
-    #     :param model:
-    #     :return:
-    #     """
-    #
-    #     grad = torch.autograd.grad(model.loss, self.params, create_graph=True)[0]  # 手动计算梯度.
-    #     self.m = self.beta * self.m + grad.data
-    #     self.m = self.beta * self.m + grad.data
-    #     self.params.data -=  self.lr * self.m  # 参数更新.
-
-    # def step(self, model=None):
-    #     old_params_data = self.params.data  # 临时存储data的值.
-    #     # theta_tmp = theta_t + beta * m
-    #     self.params.data = self.params.data + self.beta * self.m  # 下一步参数的值.
-    #     grad = torch.autograd.grad(model.loss, self.params, create_graph=True)[0]  # 手动计算梯度.
-    #     self.m = self.beta * self.m - self.lr * grad.data
-    #     self.params.data = old_params_data + self.m  # 参数更新.
-
-    # def step(self, model=None):
-    #     old_params_data = self.params.data  # 临时存储data的值.
-    #     # theta_tmp = theta_t + beta * m
-    #     self.params.data = self.params.data + self.beta * self.m  # 下一步参数的值.
-    #     grad = torch.autograd.grad(model.loss, self.params, create_graph=True)[0]  # 手动计算梯度.
-    #     self.m = self.beta * self.m + grad.data
-    #     self.params.data = old_params_data - self.lr * self.m  # 参数更新.
-
-
-class AdaGrad(GDOptimizer):
-    """
-    梯度下降法.
-    """
-
-    def __init__(self, loss, params, lr=0.01, tol=1e-6):
-        super().__init__(loss, params, lr, tol)
-        self.scale = torch.zeros_like(params)
-        self.error = 1e-10
-
-    def step(self, model=None):
-        grad = torch.autograd.grad(model.loss, self.params, create_graph=True)[0]  # 手动计算梯度.
-        self.scale += grad.data ** 2
-        self.params.data -= self.lr * grad.data / torch.sqrt(self.scale + self.error)  # 参数更新.
-
-
-class RMSProp(AdaGrad):
-    """
-    梯度下降法.
-    """
-
-    def __init__(self, loss, params, lr=0.01, tol=1e-6, delay_factor=0.9):
-        super().__init__(loss, params, lr, tol)
-        self.delay_factor = delay_factor
-
-    def step(self, model=None):
-        grad = torch.autograd.grad(model.loss, self.params, create_graph=True)[0]  # 手动计算梯度.
-        self.scale = self.delay_factor * self.scale + (1 - self.delay_factor) * grad.data ** 2
-        self.params.data -= self.lr * grad.data / torch.sqrt(self.scale + self.error)  # 参数更新.
-
-
-class Adam(RMSProp):
-    """
-    梯度下降法.
-    """
-
-    def __init__(self, loss, params, lr=0.01, tol=1e-6, delay_factor=0.9, momentum=0.9):
-        super().__init__(loss, params, lr, tol, delay_factor)
-        self.momentum = momentum
-        self.m = torch.zeros_like(params)
-        self.t = 0
-
-    def step(self, model=None):
-        grad = torch.autograd.grad(model.loss, self.params, create_graph=True)[0]  # 手动计算梯度.
-        self.m = self.momentum * self.m + (1 - self.momentum) * grad
-        self.scale = self.delay_factor * self.scale + (1 - self.delay_factor) * grad.data ** 2
-
-        modified_m = self.m / (1 - self.momentum ** (self.t + 1))
-        modified_scale = self.scale / (1 - self.delay_factor ** (self.t + 1))
-
-        self.params.data -= self.lr * modified_m / torch.sqrt(modified_scale + self.error)  # 参数更新.
-
-        self.t += 1
+#
+#
+# class Adam(RMSProp):
+#     """
+#     梯度下降法.
+#     """
+#
+#     def __init__(self, loss, params, lr=0.01, tol=1e-6, delay_factor=0.9, momentum=0.9):
+#         super().__init__(loss, params, lr, tol, delay_factor)
+#         self.momentum = momentum
+#         self.m = torch.zeros_like(params)
+#         self.t = 0
+#
+#     def step(self, model=None):
+#         grad = torch.autograd.grad(model.loss, self.params, create_graph=True)[0]  # 手动计算梯度.
+#         self.m = self.momentum * self.m + (1 - self.momentum) * grad
+#         self.scale = self.delay_factor * self.scale + (1 - self.delay_factor) * grad.data ** 2
+#
+#         modified_m = self.m / (1 - self.momentum ** (self.t + 1))
+#         modified_scale = self.scale / (1 - self.delay_factor ** (self.t + 1))
+#
+#         self.params.data -= self.lr * modified_m / torch.sqrt(modified_scale + self.error)  # 参数更新.
+#
+#         self.t += 1
