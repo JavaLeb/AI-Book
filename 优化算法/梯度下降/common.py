@@ -4,7 +4,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 
-
 def generate_data():
     """
     生成一元线性回归样本数据.
@@ -132,15 +131,10 @@ class VirtualModel:
         :param epoch: 当前轮次.
         :return:
         """
-        self.optimize()
+        self.optimizer.optimize(self.loss)
         self.record()  # 记录参数值和损失值.
         self.iteration_t = epoch + 1
         self.epoch_n = epoch + 1
-
-    def optimize(self):
-        self.optimizer.zero_grad()  # 清空梯度.
-        self.optimizer.grad_loss(self.loss)
-        self.optimizer.step()  # 更新参数.
 
 
 class LinearRegression(VirtualModel):
@@ -204,7 +198,7 @@ class LinearRegression(VirtualModel):
         for start_idx in range(0, self.n_samples, self.batch_size):  # 整个训练集分批训练.
             end_idx = min(start_idx + self.batch_size, self.n_samples)
             self.batch_indices = shuffled_indices[start_idx:end_idx]  # 获取一个批次样本索引.
-            self.optimize()
+            self.optimizer.optimize_model(self)
             self.iteration_t += 1
         self.record()
         self.epoch_n = epoch + 1
@@ -213,11 +207,6 @@ class LinearRegression(VirtualModel):
         self.points.append(self.params.clone().detach())  # 记录参数初始值.
         self.loss = self.criterion.forward(y_predict=self.forward(self.X), y_true=self.y)  # 整体损失.
         self.loss_history.append(self.loss.item())  # 记录初始损失值.
-
-    def optimize(self):
-        self.optimizer.zero_grad()  # 清空梯度.
-        self.optimizer.grad_model(self)
-        self.optimizer.step()  # 更新参数.
 
 
 def plot_points(points, lr, annotate=True):
