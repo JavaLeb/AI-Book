@@ -1,12 +1,11 @@
 import torch
 import numpy as np
-from typing import Dict, Any
 
 
 class Optimizer:
     """优化器基类"""
 
-    def __init__(self, params, lr=0.001, tol=1e-6, with_sgd=False):
+    def __init__(self, params, lr=0.001, tol=1e-8, with_sgd=False):
         """
 
         :param params: 待优化参数.
@@ -17,12 +16,8 @@ class Optimizer:
         self.tol = tol
         self.lr = lr
         self.with_sgd = with_sgd
-
-        self.sk = 's'
-        self.s = torch.zeros_like(params)
-        self.mk = 'm'
-        self.m = torch.zeros_like(params)
-        self.states = {self.mk: self.m, self.sk: self.s}
+        self.t = 0
+        self.name = self.__class__.__name__
 
     def grad_model(self, model):
         X = model.X[model.batch_indices] if self.with_sgd else model.X
@@ -32,12 +27,7 @@ class Optimizer:
 
     def grad(self, loss):
         self.params.grad = torch.autograd.grad(loss, self.params, create_graph=True)[0]
-
-    def update(self):
-        for updater in self.updaters:
-            updater.update(self.states)
-        self.m = self.states.get(self.mk)
-        self.s = self.states.get(self.sk)
+        self.t += 1
 
     def grad_loss(self, loss):
         """
@@ -148,20 +138,49 @@ class SAGOptimizer(Optimizer):
         self.direction = model.average_grads
 
 
-class MomentumOptimizer(Optimizer):
+class BaseMomentumOptimizer(Optimizer):
+    """
+    梯度下降法.
+    """
+
+    def __init__(self, params, lr=0.01, eps=1e-8, momentum_one=1.0, momentum_two=1.0,
+                 delay_factor_one=1.0, delay_factor_two=1.0, with_sgd=False):
+        super().__init__(params, lr=lr, with_sgd=with_sgd)
+        self.momentum_one = momentum_one
+        self.momentum_two = momentum_two
+        self.delay_factor_one = delay_factor_one
+        self.delay_factor_two = delay_factor_two
+        self.eps = eps
+        self.m = torch.zeros_like(params)
+        self.m_hat = None
+        self.s = torch.zeros_like(params)
+        self.s_hat = None
+
+    def update_m(self):
+        self.m = self.momentum_one * self.m + self.momentum_two * self.params.grad
+
+    def update_s(self):
+        self.s = self.delay_factor_one * self.s + self.delay_factor_two * self.params.grad ** 2
+
+    def correct_m(self):
+        self.m_hat = self.m / (1 - self.momentum_one ** self.t)
+
+    def correct_s(self):
+        self.s_hat = self.s / (1 - self.delay_factor_one ** self.t)
+
+
+class MomentumOptimizer(BaseMomentumOptimizer):
     """
     动量法优化器.
     """
 
     def __init__(self, params, lr=0.01, momentum=0.9, with_sgd=False, version=0):
-        super().__init__(params=params, lr=lr, with_sgd=with_sgd)
-        self.momentum = momentum
-        self.m = torch.zeros_like(params)  # 动量.
         if version in [0, 1, 2]:
-            self.alpha = [-self.lr, 1, -1][version]  # 根据实现版本，确定各系数的值.
+            self.alpha = [-lr, 1, -1][version]  # 根据实现版本，确定各系数的值.
         else:
-            self.alpha = -self.lr  # 根据实现版本，确定各系数的值.
-        self.gama = -self.lr / self.alpha
+            self.alpha = -lr  # 根据实现版本，确定各系数的值.
+        self.gama = -lr / self.alpha
+        super().__init__(params=params, lr=lr, momentum_one=momentum, momentum_two=self.alpha, with_sgd=with_sgd)
 
     def grad_loss(self, loss):
         """
@@ -170,7 +189,7 @@ class MomentumOptimizer(Optimizer):
         :return:
         """
         self.grad(loss)
-        self.m = self.momentum * self.m + self.alpha * self.params.grad  # 动量更新.
+        self.update_m()
         self.direction = self.m
 
     def step(self):
@@ -183,125 +202,134 @@ class MomentumOptimizer(Optimizer):
                 self.params.data += self.gama * self.direction
 
 
-class OneMomentumUpdater:
-    def __init__(self, params, mto=1.0, mtt=1.0, correction=False):
-        self.params = params
-        self.momentum_one = mto
-        self.momentum_two = mtt
-        self.mk = 'm'
-        self.correction = correction
-        self.t = 1
-
-    def update(self, states: Dict[str, Any]):
-        m = self.momentum_one * states.get(self.mk) + self.momentum_two * self.params.grad
-        if self.correction:
-            m = m / (1 - self.momentum_one ** self.t)
-            self.t += 1
-        states.update({self.mk: m})
-
-
-class TwoMomentumUpdater:
-    def __init__(self, params, dfo=1.0, dft=1.0, correction=False):
-        self.params = params
-        self.delay_factor_one = dfo
-        self.delay_factor_two = dft
-        self.sk = 's'
-        self.correction = correction
-        self.t = 1
-
-    def update(self, states: Dict[str, Any]):
-        s = self.delay_factor_one * states.get(self.sk) + self.delay_factor_two * self.params.grad ** 2
-        if self.correction:
-            s = s / (1 - self.delay_factor_one ** self.t)
-            self.t += 1
-        states.update({self.sk: s})
-
-
-class AdaGrad(Optimizer):
+class AdaGradOptimizer(BaseMomentumOptimizer):
     """
     梯度下降法.
     """
 
-    def __init__(self, params, lr=0.01):
-        super().__init__(params, lr=lr)
-        self.updaters = [TwoMomentumUpdater(params=params, dfo=1.0, dft=1.0)]
-        self.eps = 1e-10
+    def __init__(self, params, lr=0.01, eps: float = 1e-10):
+        super().__init__(params, lr=lr, eps=eps, delay_factor_one=1.0, delay_factor_two=1.0)
 
     def grad_loss(self, loss):
         self.grad(loss)
-        self.update()
-        self.direction = self.params.grad / torch.sqrt(self.s + self.eps)  # 参数更新.
+        self.update_s()
+        self.direction = self.params.grad / torch.sqrt(self.s + self.eps)
 
 
-class RMSProp(AdaGrad):
+class RMSPropOptimizer(BaseMomentumOptimizer):
     """
     梯度下降法.
     """
 
-    def __init__(self, params, lr=0.01, delay_factor=0.9):
-        super().__init__(params, lr)
-        self.delay_factor = delay_factor
-        self.updaters = [TwoMomentumUpdater(params=params, dfo=delay_factor, dft=1 - delay_factor)]
+    def __init__(self, params, lr=1e-2, delay_factor=0.99, eps=1e-8):
+        super().__init__(params, lr, eps=eps, delay_factor_one=delay_factor, delay_factor_two=1 - delay_factor)
+
+    def grad_loss(self, loss):
+        self.grad(loss)
+        self.update_s()
+        self.direction = self.params.grad / torch.sqrt(self.s + self.eps)
 
 
-class AdaDelta(RMSProp):
-    def __init__(self, params, lr=1, delay_factor=0.9):
-        super().__init__(params, lr=lr)
-        self.updaters = [TwoMomentumUpdater(params=params, dfo=delay_factor, dft=1 - delay_factor)]
+class AdaDeltaOptimizer(BaseMomentumOptimizer):
+    def __init__(self, params, lr=1.0, eps=1e-6, delay_factor=0.9):
+        super().__init__(params, lr=lr, eps=eps, delay_factor_one=delay_factor, delay_factor_two=1 - delay_factor)
         self.delta_square = torch.zeros_like(params)
 
     def grad_loss(self, loss):
         self.grad(loss)
-        self.update()
+        self.update_s()
         delta = torch.sqrt(self.delta_square + self.eps) / torch.sqrt(self.s + self.eps) * self.params.grad
-        self.delta_square = self.delay_factor * self.delta_square + (1 - self.delay_factor) * delta * delta
+        self.delta_square = self.delay_factor_one * self.delta_square + self.delay_factor_two * delta * delta
         self.direction = delta
 
 
-class Adam(AdaGrad):
+class AdamOptimizer(BaseMomentumOptimizer):
     """
     梯度下降法.
     """
 
-    def __init__(self, params, lr=0.01, momentum=0.9, delay_factor=0.9):
-        super().__init__(params, lr=lr)
-        self.updaters = [OneMomentumUpdater(params=params, mto=momentum, mtt=1 - momentum, correction=True),
-                         TwoMomentumUpdater(params=params, dfo=delay_factor, dft=1 - delay_factor, correction=True)]
+    def __init__(self, params, lr=0.01, eps=1e-8, momentum=0.9, delay_factor=0.999):
+        super().__init__(params, lr=lr, eps=eps,
+                         momentum_one=momentum, momentum_two=1 - momentum,
+                         delay_factor_one=delay_factor, delay_factor_two=1 - delay_factor)
 
     def grad_loss(self, loss):
         self.grad(loss)
-        self.update()
-        self.direction = self.m / torch.sqrt(self.s + self.eps)
+        self.update_m()
+        self.update_s()
+        self.correct_m()
+        self.correct_s()
+        self.direction = self.m_hat / (torch.sqrt(self.s_hat) + self.eps)
 
 
-class NAG(MomentumOptimizer):
+class AdamMaxOptimizer(BaseMomentumOptimizer):
+    def __init__(self, params, lr=2e-3, eps: float = 1e-8, momentum=0.9, delay_factor=0.999):
+        super().__init__(params=params, lr=lr, eps=eps,
+                         momentum_one=momentum, momentum_two=1 - momentum,
+                         delay_factor_one=delay_factor, delay_factor_two=1 - delay_factor)
+
+    def grad_loss(self, loss):
+        self.grad(loss)
+        self.update_m()
+        self.correct_m()
+        norm = torch.abs(self.params.grad) + self.eps
+        self.s = torch.max(self.delay_factor_one * self.s, norm)
+        self.direction = self.m_hat / self.s
+
+
+class NAGOptimizer(BaseMomentumOptimizer):
     """
     梯度下降法.
     """
 
     def __init__(self, params, lr=0.01, momentum=0.9, version=0):
-        super().__init__(params=params, lr=lr, momentum=momentum)
+
         if version in [0, 1, 2]:
-            self.alpha = [-self.lr, -1, 1][version]
-            self.beta = -self.lr / self.alpha
+            self.alpha = [-lr, -1, 1][version]
+            self.beta = -lr / self.alpha
             self.gama = self.beta
         elif version == 3:
             self.alpha = 1
             self.beta = 1
-            self.gama = -self.lr
+            self.gama = -lr
         else:
-            self.alpha = -self.lr
-            self.beta = -self.lr / self.alpha
+            self.alpha = -lr
+            self.beta = -lr / self.alpha
             self.gama = self.beta
+        super().__init__(params=params, lr=lr, momentum_one=momentum, momentum_two=self.alpha)
 
     def grad_loss(self, loss):
         old_params_data = self.params.data  # 临时存储data的值.
-        self.params.data = self.params.data + self.beta * self.momentum * self.m  # 下一步参数的值.
+        self.params.data = self.params.data + self.beta * self.momentum_one * self.m  # 下一步参数的值.
         self.grad(loss)
-        self.m = self.momentum * self.m + self.alpha * self.params.grad
+        self.update_m()
         self.params.data = old_params_data
         self.direction = self.m
 
     def step(self):
         with torch.no_grad():
             self.params.data += self.gama * self.direction
+
+
+class SystemOptimizer(Optimizer):
+    def __init__(self, optimizer):
+        params = optimizer.param_groups[0].get('params')[0]
+        super().__init__(params)
+        self.optimizer = optimizer
+        self.lr = optimizer.defaults.get('lr')
+        self.name = optimizer.__class__.__name__
+
+    def grad_loss(self, loss):
+        """
+        计算梯度.
+        :param loss: 损失值.
+        :return:
+        """
+        self.grad(loss)
+
+    def step(self):
+        """
+        顺序执行每个更新器，并应用更新策略.
+        :return:
+        """
+        self.optimizer.step()

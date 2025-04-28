@@ -2,6 +2,38 @@ import torch
 from torch import Tensor
 import numpy as np
 import matplotlib.pyplot as plt
+from optimizer import SystemOptimizer
+
+
+class OptimizerComparator:
+    def __init__(self, configs):
+        self.configs = configs
+
+    def compare(self):
+        initial_param1 = torch.tensor([-10.0, 10.0], requires_grad=True)
+        initial_param2 = torch.tensor([10.0, 10.0], requires_grad=True)
+        optimizers = []
+
+        for config in self.configs:
+            kwargs = config['kwargs']
+            if kwargs is None:
+                kwargs = {}
+            if config['type'] == 'system':
+                optimizer = config['class']([initial_param1], **kwargs)
+                optimizers.append(SystemOptimizer(optimizer=optimizer))
+            if config['type'] == 'custom':
+                optimizers.append(config['class'](params=initial_param2, **kwargs))
+        plt.figure(figsize=(10, 8))
+        criterion = SquareFunction(torch.tensor([1.0, 2.0]))
+        plot_contour(criterion, r=15, n=400)  # 绘制等高线.
+        for optimizer in optimizers:
+            model = VirtualModel(
+                criterion=criterion,
+                optimizer=optimizer
+            )
+            model.fit()
+            plot_points(model.points, optimizer)  # 绘制参数迭代路径.
+        plt.show()
 
 
 def generate_data():
@@ -111,7 +143,8 @@ class VirtualModel:
             if self.iteration_t > 0 and abs(self.loss_history[-1] - self.loss_history[-2]) < self.optimizer.tol:
                 break
             self.train_epoch(epoch)
-        print(f"batch_size {self.batch_size},"
+        print(f"optimizer {self.optimizer.name}, "
+              f"batch_size {self.batch_size}, "
               f"learning rate {self.optimizer.lr}, Converged at epoch {self.epoch_n}, iteration {self.iteration_t}, "
               f"Optimized parameters: {np.round(self.params.detach().numpy(), 3)}, "
               f"Final loss: {np.round(self.loss_history[-1], 4)}")
@@ -209,7 +242,7 @@ class LinearRegression(VirtualModel):
         self.loss_history.append(self.loss.item())  # 记录初始损失值.
 
 
-def plot_points(points, lr, annotate=True):
+def plot_points(points, optimizer, annotate=True):
     """
 
     :param points: 坐标点.
@@ -219,7 +252,8 @@ def plot_points(points, lr, annotate=True):
     """
     points = np.array(points)
     # 绘制参数点以及路径.
-    plt.plot(points[:, 0], points[:, 1], 'o-', markersize=8, linewidth=1, label=rf'$\eta$ = {lr}')
+    plt.plot(points[:, 0], points[:, 1], 'o-', markersize=8, linewidth=1,
+             label=rf'{optimizer.name}($\eta$ = {optimizer.lr})')
     if annotate:
         for i, (x, y) in enumerate(points):  # 标注迭代步骤
             plt.annotate(str(i), (x, y), textcoords="offset points", xytext=(0, 10), ha='center')
@@ -297,3 +331,10 @@ def plot_contour_with_sample(loss, X_samples, y_samples, r, n):
     plt.ylabel(r'$\theta_2$')
     plt.title(r'Gradient Descent')
     plt.grid(True)
+
+
+def plot_curve(loss_history):
+    plt.plot(loss_history)  # 学习曲线.
+    plt.xlabel("Epochs", fontsize=10)
+    plt.ylabel("Loss", fontsize=10)
+    plt.title("Training Loss Curve", fontsize=10)
