@@ -104,9 +104,9 @@ class BaseMomentumOptimizer(BaseOptimizer):
         self.delay_factor_two = delay_factor_two
         self.eps = eps
         self.m = torch.zeros_like(params)
-        self.m_hat = None
+        self.m_hat = torch.zeros_like(params)
         self.s = torch.zeros_like(params)
-        self.s_hat = None
+        self.s_hat = torch.zeros_like(params)
 
     def update_m(self):
         self.m = self.momentum_one * self.m + self.momentum_two * self.params.grad
@@ -194,7 +194,6 @@ class SGDOptimizer(BaseMomentumOptimizer):
         self.grad(loss)
         self.params.grad += self.gama * self.params.data
         self.direction = self.params.grad
-
 
 
 class SAGOptimizer(BaseOptimizer):
@@ -432,3 +431,15 @@ class SGDWOptimizer(SGDOptimizer):
 
     def step(self):
         self.params.data -= self.m + self.lr * self.gama * self.params.data
+
+
+class AMSGradOptimizer(AdamOptimizer):
+
+    def grad_loss(self, loss):
+        self.grad(loss)
+        self.update_m()
+        self.correct_m()
+        self.update_s()
+        self.s_hat = torch.max(self.s_hat, self.s)
+        correct_s_hat = self.s_hat / (1 - self.delay_factor_one ** self.t)
+        self.direction = self.m_hat / (torch.sqrt(correct_s_hat) + self.eps)
