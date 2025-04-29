@@ -1,3 +1,5 @@
+import math
+
 import torch
 import numpy as np
 
@@ -95,13 +97,13 @@ class BaseMomentumOptimizer(BaseOptimizer):
     """
 
     def __init__(self, params, lr=0.01, eps=1e-8, momentum_one=1.0, momentum_two=1.0,
-                 delay_factor_one=1.0, delay_factor_two=1.0, with_sgd=False):
+                 decay_factor_one=1.0, decay_factor_two=1.0, with_sgd=False):
         super().__init__(params, lr=lr, with_sgd=with_sgd)
-        self.adap_lr = None
+        self.adap_direction = None
         self.momentum_one = momentum_one
         self.momentum_two = momentum_two
-        self.delay_factor_one = delay_factor_one
-        self.delay_factor_two = delay_factor_two
+        self.decay_factor_one = decay_factor_one
+        self.decay_factor_two = decay_factor_two
         self.eps = eps
         self.m = torch.zeros_like(params)
         self.m_hat = torch.zeros_like(params)
@@ -113,7 +115,7 @@ class BaseMomentumOptimizer(BaseOptimizer):
         return self.m
 
     def update_s(self):
-        self.s = self.delay_factor_one * self.s + self.delay_factor_two * self.params.grad ** 2
+        self.s = self.decay_factor_one * self.s + self.decay_factor_two * self.params.grad ** 2
         return self.s
 
     def correct_m(self):
@@ -121,12 +123,12 @@ class BaseMomentumOptimizer(BaseOptimizer):
         return self.m_hat
 
     def correct_s(self):
-        self.s_hat = self.s / (1 - self.delay_factor_one ** self.t)
+        self.s_hat = self.s / (1 - self.decay_factor_one ** self.t)
         return self.s_hat
 
     def adap(self):
-        self.adap_lr = self.m_hat / (torch.sqrt(self.s_hat) + self.eps)
-        return self.adap_lr
+        self.adap_direction = self.m_hat / (torch.sqrt(self.s_hat) + self.eps)
+        return self.adap_direction
 
 
 class GDOptimizer(BaseOptimizer):
@@ -257,7 +259,7 @@ class AdaGradOptimizer(BaseMomentumOptimizer):
     """
 
     def __init__(self, params, lr=0.01, eps: float = 1e-10):
-        super().__init__(params, lr=lr, eps=eps, delay_factor_one=1.0, delay_factor_two=1.0)
+        super().__init__(params, lr=lr, eps=eps, decay_factor_one=1.0, decay_factor_two=1.0)
 
     def grad_loss(self, loss):
         self.grad(loss)
@@ -270,8 +272,8 @@ class RMSPropOptimizer(BaseMomentumOptimizer):
     RMSProp.
     """
 
-    def __init__(self, params, lr=1e-2, delay_factor=0.99, eps=1e-8):
-        super().__init__(params, lr, eps=eps, delay_factor_one=delay_factor, delay_factor_two=1 - delay_factor)
+    def __init__(self, params, lr=1e-2, decay_factor=0.99, eps=1e-8):
+        super().__init__(params, lr, eps=eps, decay_factor_one=decay_factor, decay_factor_two=1 - decay_factor)
 
     def grad_loss(self, loss):
         self.grad(loss)
@@ -280,15 +282,15 @@ class RMSPropOptimizer(BaseMomentumOptimizer):
 
 
 class AdaDeltaOptimizer(BaseMomentumOptimizer):
-    def __init__(self, params, lr=1.0, eps=1e-6, delay_factor=0.9):
-        super().__init__(params, lr=lr, eps=eps, delay_factor_one=delay_factor, delay_factor_two=1 - delay_factor)
+    def __init__(self, params, lr=1.0, eps=1e-6, decay_factor=0.9):
+        super().__init__(params, lr=lr, eps=eps, decay_factor_one=decay_factor, decay_factor_two=1 - decay_factor)
         self.delta_square = torch.zeros_like(params)
 
     def grad_loss(self, loss):
         self.grad(loss)
         self.update_s()
         delta = torch.sqrt(self.delta_square + self.eps) / torch.sqrt(self.s + self.eps) * self.params.grad
-        self.delta_square = self.delay_factor_one * self.delta_square + self.delay_factor_two * delta * delta
+        self.delta_square = self.decay_factor_one * self.delta_square + self.decay_factor_two * delta * delta
         self.direction = delta
 
 
@@ -297,10 +299,10 @@ class AdamOptimizer(BaseMomentumOptimizer):
     Adam.
     """
 
-    def __init__(self, params, lr=0.01, eps=1e-8, momentum=0.9, delay_factor=0.999):
+    def __init__(self, params, lr=0.01, eps=1e-8, momentum=0.9, decay_factor=0.999):
         super().__init__(params, lr=lr, eps=eps,
                          momentum_one=momentum, momentum_two=1 - momentum,
-                         delay_factor_one=delay_factor, delay_factor_two=1 - delay_factor)
+                         decay_factor_one=decay_factor, decay_factor_two=1 - decay_factor)
 
     def grad_loss(self, loss):
         self.grad(loss)
@@ -312,17 +314,17 @@ class AdamOptimizer(BaseMomentumOptimizer):
 
 
 class AdamMaxOptimizer(BaseMomentumOptimizer):
-    def __init__(self, params, lr=2e-3, eps: float = 1e-8, momentum=0.9, delay_factor=0.999):
+    def __init__(self, params, lr=2e-3, eps: float = 1e-8, momentum=0.9, decay_factor=0.999):
         super().__init__(params=params, lr=lr, eps=eps,
                          momentum_one=momentum, momentum_two=1 - momentum,
-                         delay_factor_one=delay_factor, delay_factor_two=1 - delay_factor)
+                         decay_factor_one=decay_factor, decay_factor_two=1 - decay_factor)
 
     def grad_loss(self, loss):
         self.grad(loss)
         self.update_m()
         self.correct_m()
         norm = torch.abs(self.params.grad) + self.eps
-        self.s = torch.max(self.delay_factor_one * self.s, norm)
+        self.s = torch.max(self.decay_factor_one * self.s, norm)
         self.direction = self.m_hat / self.s
 
 
@@ -387,11 +389,11 @@ class AggMoOptimizer(BaseOptimizer):
 
 
 class AdamWOptimizer(BaseMomentumOptimizer):
-    def __init__(self, params, lr=2e-3, eps: float = 1e-8, momentum=0.9, delay_factor=0.999,
+    def __init__(self, params, lr=2e-3, eps: float = 1e-8, momentum=0.9, decay_factor=0.999,
                  weight_decay=1e-2, alpha=1.0):
         super().__init__(params=params, lr=lr, eps=eps,
                          momentum_one=momentum, momentum_two=1 - momentum,
-                         delay_factor_one=delay_factor, delay_factor_two=1 - delay_factor)
+                         decay_factor_one=decay_factor, decay_factor_two=1 - decay_factor)
         self.weight_decay = weight_decay
         self.alpha = alpha
 
@@ -441,5 +443,72 @@ class AMSGradOptimizer(AdamOptimizer):
         self.correct_m()
         self.update_s()
         self.s_hat = torch.max(self.s_hat, self.s)
-        correct_s_hat = self.s_hat / (1 - self.delay_factor_one ** self.t)
+        correct_s_hat = self.s_hat / (1 - self.decay_factor_one ** self.t)
         self.direction = self.m_hat / (torch.sqrt(correct_s_hat) + self.eps)
+
+
+class AdafactorOptimizer(BaseMomentumOptimizer):
+
+    def __init__(self, params, lr=0.01, eps=1e-30, eps2=1e-3, momentum=0.0, decay_factor=-0.8, d=1.0):
+        super().__init__(params, lr=lr, eps=eps,
+                         momentum_one=momentum, momentum_two=1 - momentum,
+                         decay_factor_one=decay_factor, decay_factor_two=1 - decay_factor)
+        self.eps2 = eps2
+        self.d = d
+
+    def grad_loss(self, loss):
+        self.grad(loss)
+        self.update_m()
+        self.decay_factor_one = 1 - self.t ** (-0.8)
+        self.decay_factor_two = 1 - self.decay_factor_one
+        self.update_s()
+        u = self.m / torch.sqrt(self.s)
+        rms_params = torch.sqrt(torch.mean(torch.square(self.params.data)))
+        self.lr = max(self.eps2, rms_params.item()) * min(1e-2, 1 / self.t ** 0.5)
+        rms_u = torch.sqrt(torch.mean(torch.square(u)))
+        self.direction = u / max(1.0, rms_u.item() / self.d)
+
+
+class RAdamOptimizer(AdamOptimizer):
+    def __init__(self, params, lr=1e-3, eps=1e-8, momentum=0.9, decay_factor=0.999):
+        super().__init__(params, lr=lr, eps=eps, momentum=momentum, decay_factor=decay_factor)
+        self.rho_inf = 2 / (1 - decay_factor) - 1
+
+    def grad_loss(self, loss):
+        self.grad(loss)
+        self.update_m()
+        self.update_s()
+        self.correct_m()
+        a = self.decay_factor_one ** self.t
+        rho_t = self.rho_inf - 2 * self.t * a / (1 - a)
+        if rho_t > 5:  # 延迟修正.
+            self.correct_s()
+            b = (rho_t - 4) * (rho_t - 2) * self.rho_inf
+            c = (self.rho_inf - 4) * (self.rho_inf - 2) * rho_t
+            r_t = math.sqrt(b / c)
+            self.direction = r_t * self.adap()
+        else:
+            self.direction = self.m_hat
+
+
+class NadamOptimizer(AdamOptimizer):
+    def __init__(self, params, lr=1e-3, eps=1e-8, momentum=0.9, decay_factor=0.999, momentum_decay=4e-3):
+        super().__init__(params, lr=lr, eps=eps, momentum=momentum, decay_factor=decay_factor)
+        self.momentum_decay = momentum_decay
+        self.mu_product = 1.0
+
+    def grad_loss(self, loss):
+        self.grad(loss)
+        self.update_m()
+        self.update_s()
+
+        mu = self.momentum_one * (1.0 - 0.5 * (0.96 ** (self.t * self.momentum_decay)))
+        mu_next = self.momentum_one * (1.0 - 0.5 * (0.96 ** ((self.t + 1) * self.momentum_decay)))
+        self.mu_product *= mu
+        self.m_hat = self.m / (1 - self.mu_product*mu_next)
+
+        self.correct_s()
+        grad_hat = self.params.grad / (1 - self.mu_product)
+
+        m_bar = mu_next * self.m_hat + (1 - mu) * grad_hat
+        self.direction = m_bar / (torch.sqrt(self.s_hat) + self.eps)
