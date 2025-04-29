@@ -8,31 +8,51 @@ from optimizer import SystemOptimizer
 class OptimizerComparator:
     def __init__(self, configs):
         self.configs = configs
+        self.optimizers = []
 
-    def compare(self):
-        initial_param1 = torch.tensor([-10.0, 10.0], requires_grad=True)
-        initial_param2 = torch.tensor([10.0, 10.0], requires_grad=True)
-        optimizers = []
+    def compare(self, model=False):
 
         for config in self.configs:
             kwargs = config['kwargs']
             if kwargs is None:
                 kwargs = {}
             if config['type'] == 'system':
-                optimizer = config['class']([initial_param1], **kwargs)
-                optimizers.append(SystemOptimizer(optimizer=optimizer))
+                initial_param = torch.tensor([-10.0, 10.0], requires_grad=True)
+                optimizer = config['class']([initial_param], **kwargs)
+                self.optimizers.append(SystemOptimizer(optimizer=optimizer))
             if config['type'] == 'custom':
-                optimizers.append(config['class'](params=initial_param2, **kwargs))
-        plt.figure(figsize=(10, 8))
+                initial_param = torch.tensor([10.0, 10.0], requires_grad=True)
+                self.optimizers.append(config['class'](params=initial_param, **kwargs))
+        if model:
+            self.plot_model()
+        else:
+            self.plot()
+
+    def plot(self):
         criterion = SquareFunction(torch.tensor([1.0, 2.0]))
         plot_contour(criterion, r=15, n=400)  # 绘制等高线.
-        for optimizer in optimizers:
+        for optimizer in self.optimizers:
             model = VirtualModel(
                 criterion=criterion,
                 optimizer=optimizer
             )
             model.fit()
             plot_points(model.points, optimizer)  # 绘制参数迭代路径.
+        plt.show()
+
+    def plot_model(self):
+        X, y = generate_data()
+        criterion = MSELoss()
+        plot_contour_with_sample(criterion, X, y, r=11, n=400)  # 绘制等高线.
+        for optimizer in self.optimizers:
+            model = LinearRegression(
+                in_features=1,
+                out_features=1,
+                criterion=criterion,
+                optimizer=optimizer
+            )
+            model.fit(X, y, epochs=2000, batch_size=5, shuffled=False)
+            plot_points(model.points, optimizer, annotate=False)  # 绘制参数迭代路径.
         plt.show()
 
 
@@ -269,7 +289,7 @@ def plot_contour(loss, r, n):
     points = torch.tensor(points, dtype=torch.float32)  # 转化为张量.
     Z = loss.forward(points)
     Z = Z.reshape(X.shape).numpy()  # 转换为网格数据.
-
+    plt.figure(figsize=(10, 8))
     contour = plt.contour(X, Y, Z, levels=np.logspace(0, 3, 10), cmap='viridis')  # 绘制等高线.
     plt.clabel(contour, inline=True, fontsize=8)
     # 设置图形属性
