@@ -17,6 +17,7 @@ class BaseOptimizer:
         self.params = params
         self.tol = tol
         self.lr = lr
+        self.adaptive_lr = lr
         self.with_sgd = with_sgd
         self.t = 0
         self.name = self.__class__.__name__
@@ -28,7 +29,8 @@ class BaseOptimizer:
         self.grad_loss(loss)
 
     def grad(self, loss):
-        self.params.grad = torch.autograd.grad(loss, self.params, create_graph=True)[0]
+        loss.backward()
+        # self.params.grad = torch.autograd.grad(loss, self.params, create_graph=True)[0]
         self.t += 1
 
     def grad_loss(self, loss):
@@ -54,7 +56,7 @@ class BaseOptimizer:
         :return:
         """
         with torch.no_grad():
-            self.params.data -= self.lr * self.direction
+            self.params.data -= self.adaptive_lr * self.direction
 
     def optimize(self, loss):
         self.zero_grad()  # 清空梯度.
@@ -99,7 +101,7 @@ class BaseMomentumOptimizer(BaseOptimizer):
     def __init__(self, params, lr=0.01, eps=1e-8, momentum_one=1.0, momentum_two=1.0,
                  decay_factor_one=1.0, decay_factor_two=1.0, with_sgd=False):
         super().__init__(params, lr=lr, with_sgd=with_sgd)
-        self.adap_direction = None
+        self.direction = None
         self.momentum_one = momentum_one
         self.momentum_two = momentum_two
         self.decay_factor_one = decay_factor_one
@@ -126,9 +128,8 @@ class BaseMomentumOptimizer(BaseOptimizer):
         self.s_hat = self.s / (1 - self.decay_factor_one ** self.t)
         return self.s_hat
 
-    def adap(self):
-        self.adap_direction = self.m_hat / (torch.sqrt(self.s_hat) + self.eps)
-        return self.adap_direction
+    def get_m_direction(self):
+        return self.m_hat / (torch.sqrt(self.s_hat) + self.eps)
 
 
 class GDOptimizer(BaseOptimizer):
@@ -310,7 +311,7 @@ class AdamOptimizer(BaseMomentumOptimizer):
         self.update_s()
         self.correct_m()
         self.correct_s()
-        self.direction = self.adap()
+        self.direction = self.get_m_direction()
 
 
 class AdamMaxOptimizer(BaseMomentumOptimizer):
@@ -403,7 +404,7 @@ class AdamWOptimizer(BaseMomentumOptimizer):
         self.update_s()
         self.correct_m()
         self.correct_s()
-        self.direction = self.alpha * self.adap() + self.weight_decay * self.params.data
+        self.direction = self.alpha * self.get_m_direction() + self.weight_decay * self.params.data
 
 
 class SGDWOptimizer(SGDOptimizer):
@@ -449,24 +450,46 @@ class AMSGradOptimizer(AdamOptimizer):
 
 class AdafactorOptimizer(BaseMomentumOptimizer):
 
-    def __init__(self, params, lr=0.01, eps=1e-30, eps2=1e-3, momentum=0.0, decay_factor=-0.8, d=1.0):
+    def __init__(self, params, lr=0.01, eps=1e-30, eps2=1e-3, momentum=0.0, decay_factor_exp=-0.8, d=1.0):
         super().__init__(params, lr=lr, eps=eps,
                          momentum_one=momentum, momentum_two=1 - momentum,
-                         decay_factor_one=decay_factor, decay_factor_two=1 - decay_factor)
+                         decay_factor_one=decay_factor_exp, decay_factor_two=1 - decay_factor_exp)
         self.eps2 = eps2
         self.d = d
+        self.decay_factor_exp = decay_factor_exp
+        if self.params.dim() > 1:
+            self.row = torch.zeros(size=(self.params.size(0), 1))
+            self.col = torch.zeros(size=(1, self.params.size(1)))
 
     def grad_loss(self, loss):
         self.grad(loss)
         self.update_m()
-        self.decay_factor_one = 1 - self.t ** (-0.8)
-        self.decay_factor_two = 1 - self.decay_factor_one
-        self.update_s()
-        u = self.m / torch.sqrt(self.s)
-        rms_params = torch.sqrt(torch.mean(torch.square(self.params.data)))
-        self.lr = max(self.eps2, rms_params.item()) * min(1e-2, 1 / self.t ** 0.5)
-        rms_u = torch.sqrt(torch.mean(torch.square(u)))
-        self.direction = u / max(1.0, rms_u.item() / self.d)
+        self.decay_factor_two = self.t ** self.decay_factor_exp
+        self.decay_factor_one = 1 - self.decay_factor_two
+
+        if self.params.grad.dim() > 1:  # 矩阵形式.
+            self.grad_loss_matrix()
+        else:  # 向量形式.
+            self.update_s()
+        u = self.m / (torch.sqrt(self.s) + self.eps)
+        rms_u = u.norm(2).item() / u.numel() ** 0.5
+        self.direction = u / max(1.0, rms_u / self.d)
+
+        rms_params = self.params.norm(2).item() / self.params.numel() ** 0.5
+        rho_t = min(self.lr, 1 / self.t ** 0.5)
+        self.adaptive_lr = max(self.eps2, rms_params) * rho_t
+
+    def grad_loss_matrix(self):
+
+        r = self.params.grad.size(0)
+        c = self.params.grad.size(-1)
+        one_row = torch.ones((1, r))
+        one_col = torch.ones((c, 1))
+
+        grad = self.params.grad
+        self.row = self.decay_factor_one * self.row + self.decay_factor_two * torch.matmul(grad * grad, one_col)
+        self.col = self.decay_factor_one * self.col + self.decay_factor_two * torch.matmul(one_row, grad * grad)
+        self.s = torch.matmul(self.row, self.col / torch.matmul(one_row, self.row))
 
 
 class RAdamOptimizer(AdamOptimizer):
@@ -486,7 +509,7 @@ class RAdamOptimizer(AdamOptimizer):
             b = (rho_t - 4) * (rho_t - 2) * self.rho_inf
             c = (self.rho_inf - 4) * (self.rho_inf - 2) * rho_t
             r_t = math.sqrt(b / c)
-            self.direction = r_t * self.adap()
+            self.direction = r_t * self.get_m_direction()
         else:
             self.direction = self.m_hat
 
@@ -505,10 +528,69 @@ class NadamOptimizer(AdamOptimizer):
         mu = self.momentum_one * (1.0 - 0.5 * (0.96 ** (self.t * self.momentum_decay)))
         mu_next = self.momentum_one * (1.0 - 0.5 * (0.96 ** ((self.t + 1) * self.momentum_decay)))
         self.mu_product *= mu
-        self.m_hat = self.m / (1 - self.mu_product*mu_next)
+        self.m_hat = self.m / (1 - self.mu_product * mu_next)
 
         self.correct_s()
         grad_hat = self.params.grad / (1 - self.mu_product)
 
         m_bar = mu_next * self.m_hat + (1 - mu) * grad_hat
         self.direction = m_bar / (torch.sqrt(self.s_hat) + self.eps)
+
+
+class QHAdamOptimizer(AdamOptimizer):
+    def __init__(self, params, lr=1e-3, eps=1e-8, momentum=0.9, decay_factor=0.999, v1=0.7, v2=0.7):
+        super().__init__(params, lr=lr, eps=eps, momentum=momentum, decay_factor=decay_factor)
+        self.v1 = v1
+        self.v2 = v2
+
+    def grad_loss(self, loss):
+        self.grad(loss)
+        self.update_m()
+        self.update_s()
+        self.correct_m()
+        self.correct_s()
+        grad = self.params.grad
+        numerator = self.v1 * self.m_hat + (1 - self.v1) * self.params.grad
+        denominator = self.v2 * self.s_hat + (1 - self.v2) * grad * grad
+        self.direction = numerator / (torch.sqrt(denominator) + self.eps)
+
+
+class SWATSOptimizer(AdamOptimizer):
+    def __init__(self, params, lr=1e-3, eps=1e-8, momentum=0.9, decay_factor=0.999, e=1e-1, sim_e=0):
+        super().__init__(params, lr=lr, eps=eps, momentum=momentum, decay_factor=decay_factor)
+        self.sgd = 'SGD'
+        self.adam = 'Adam'
+        self.phase = self.adam
+        self.v = torch.zeros_like(self.params)
+        self.delta = 0
+        self.e = e
+        self.sim_e = sim_e
+
+    def grad_loss(self, loss):
+        self.grad(loss)  # 梯度计算.
+        if self.phase == self.adam:  # Adam阶段.
+            self.update_m()  # 更新梯度一阶矩.
+            self.update_s()  # 更新梯度二阶矩.
+            self.correct_m()  # 修正梯度一阶矩.
+            self.correct_s()  # 修正梯度二阶矩.
+            p = -self.lr * self.get_m_direction()
+            self.params.data += p  # 参数更新.
+            sim = torch.sum(p * self.params.grad).item()
+            if abs(sim) > self.sim_e:
+                gama = - torch.sum(p * p) / sim
+                self.delta = self.decay_factor_one * self.delta + self.decay_factor_two * gama
+                yita = self.delta / (1 - self.decay_factor_one ** self.t)  # SGD学习率.
+                if self.t > 1 and abs(yita - gama) < self.e:  # 阶段切换.
+                    self.phase = self.sgd
+                    print(f'{self.adam}切换到{self.sgd}: t={self.t}')
+                    self.adaptive_lr = (1 - self.momentum_one) * yita  # 设置SGD的自适应学习率.
+        else:  # SGD阶段.
+            self.v = self.momentum_one * self.v + self.params.grad  # 更新SGD的梯度一阶矩.
+            self.params.data -= self.adaptive_lr * self.v  # 参数更新.
+
+    def step(self):
+        """
+        这里需要覆盖父类step方法实现，在grad_loss方法中进行参数更新.
+        :return:
+        """
+        pass

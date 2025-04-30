@@ -10,11 +10,11 @@ from common import OptimizerComparator
 from torch.optim import Adadelta, Adagrad
 
 if __name__ == '__main__':
-    configs = [{'type': 'system', 'class': torch.optim.Adagrad, 'kwargs': {'lr': 10}},
-               {'type': 'custom', 'class': AdaGradOptimizer, 'kwargs': {'lr': 10}}]
+    lr = 10
+    configs = [{'type': 'system', 'class': torch.optim.Adagrad, 'kwargs': {'lr': lr}},
+               {'type': 'custom', 'class': AdaGradOptimizer, 'kwargs': {'lr': lr}}]
     comparator = OptimizerComparator(configs=configs)
     comparator.compare()
-
 
     # # 演示不同学习率
     # initial_params = [torch.tensor([10.0, 10.0], requires_grad=True),

@@ -13,16 +13,16 @@ class OptimizerComparator:
     def compare(self, model=False):
 
         for config in self.configs:
-            kwargs = config['kwargs']
+            kwargs, cls, cls_type = config['kwargs'], config['class'], config['type']
             if kwargs is None:
                 kwargs = {}
-            if config['type'] == 'system':
+            if cls_type == 'system':
                 initial_param = torch.tensor([-10.0, 10.0], requires_grad=True)
-                optimizer = config['class']([initial_param], **kwargs)
+                optimizer = cls([initial_param], **kwargs)
                 self.optimizers.append(SystemOptimizer(optimizer=optimizer))
-            if config['type'] == 'custom':
+            if cls_type == 'custom':
                 initial_param = torch.tensor([10.0, 10.0], requires_grad=True)
-                self.optimizers.append(config['class'](params=initial_param, **kwargs))
+                self.optimizers.append(cls(params=initial_param, **kwargs))
         if model:
             self.plot_model()
         else:
@@ -89,6 +89,9 @@ class SquareFunction:
         :param params: 函数自变量, shape=Tensor(n,).
         :return: 函数值, dim=-1表示沿着最后一个维度求和，是为了支持网格数据计算.
         """
+        return torch.sum(self.coefficient * params ** 2)
+
+    def forward_mesh(self, params: Tensor) -> Tensor:
         return torch.sum(self.coefficient * params ** 2, dim=-1)
 
 
@@ -114,6 +117,9 @@ class MSELoss:
             return torch.sum((y_predict - y_true) ** 2)
         else:
             return (y_predict - y_true) ** 2
+
+    def forward_mesh(self, y_predict: Tensor, y_true: Tensor, reduction='mean') -> Tensor:
+        return self.forward(y_predict=y_predict, y_true=y_true, reduction=reduction)
 
     def backward(self, y_pred: Tensor, y_true: Tensor) -> Tensor:
         """
@@ -184,7 +190,19 @@ class VirtualModel:
         :param epoch: 当前轮次.
         :return:
         """
-        self.optimizer.optimize(self.loss)
+        if isinstance(self.optimizer, SystemOptimizer) and isinstance(self.optimizer.optimizer, torch.optim.LBFGS):
+            lbfgs = self.optimizer.optimizer
+
+            def closure():
+                lbfgs.zero_grad()
+                loss = self.criterion.forward(self.params)
+                loss.backward()
+                return loss
+
+            lbfgs.step(closure)
+        else:
+            self.optimizer.optimize(self.loss)
+
         self.record()  # 记录参数值和损失值.
         self.iteration_t = epoch + 1
         self.epoch_n = epoch + 1
@@ -287,7 +305,7 @@ def plot_contour(loss, r, n):
     X, Y = np.meshgrid(x, y)  # x沿着y的维度复制得到X，y沿着x的维度复制得到Y. 让X和Y重叠，重叠位置就是(x,y)坐标.
     points = np.stack([X.ravel(), Y.ravel()], axis=1)  # 网格点变为坐标点(x,y).
     points = torch.tensor(points, dtype=torch.float32)  # 转化为张量.
-    Z = loss.forward(points)
+    Z = loss.forward_mesh(points)
     Z = Z.reshape(X.shape).numpy()  # 转换为网格数据.
     plt.figure(figsize=(10, 8))
     contour = plt.contour(X, Y, Z, levels=np.logspace(0, 3, 10), cmap='viridis')  # 绘制等高线.
