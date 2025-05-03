@@ -7,7 +7,7 @@ import numpy as np
 class BaseOptimizer:
     """优化器基类"""
 
-    def __init__(self, params, lr=0.001, tol=1e-8, with_sgd=False):
+    def __init__(self, params, lr=0.001, eps=1e-8, tol=1e-8, with_sgd=False):
         """
 
         :param params: 待优化参数.
@@ -15,6 +15,7 @@ class BaseOptimizer:
         self.updaters = None
         self.direction = None
         self.params = params
+        self.eps = eps
         self.tol = tol
         self.lr = lr
         self.adaptive_lr = lr
@@ -594,3 +595,48 @@ class SWATSOptimizer(AdamOptimizer):
         :return:
         """
         pass
+
+
+class YogiOptimizer(AdamOptimizer):
+
+    def grad_loss(self, loss):
+        self.grad(loss)
+        self.update_m()
+        self.correct_m()
+        grad_square = self.params.grad * self.params.grad
+        self.s += self.decay_factor_two * torch.sign(grad_square - self.s) * grad_square
+        self.correct_s()
+        self.direction = self.m_hat / (torch.sqrt(self.s_hat) + self.eps)
+
+
+class ShampooOptimizer(BaseOptimizer):
+
+    def __init__(self, params, lr=0.01, eps=1e-4):
+        super().__init__(params, lr=lr, eps=eps)
+        self.left = self.eps * torch.eye(self.params.size(0))
+        self.right = self.eps * torch.eye(self.params.size(1))
+        self.order = self.params.dim()
+
+    def grad_loss(self, loss):
+        self.grad(loss)
+        grad = self.params.grad.clone()
+        grad_t = grad.T
+
+        self.left += grad @ grad_t
+        self.right += grad_t @ grad
+        left_inv = self.matrix_power(self.left, -1 / (2 * self.order))
+        right_inv = self.matrix_power(self.right, -1 / (2 * self.order))
+        self.direction = left_inv @ grad @ right_inv
+
+        # # torch_optimizer.Shampoo实现.
+        # self.left += grad @ grad_t
+        # left_inv = self.matrix_power(self.left, -1 / self.order)
+        # grad = left_inv @ grad
+        # grad_t = grad.T
+        # self.right += grad_t @ grad
+        # right_inv = self.matrix_power(self.right, -1 / self.order)
+        # self.direction = grad @ right_inv
+
+    def matrix_power(self, matrix: torch.Tensor, power: float) -> torch.Tensor:
+        u, s, v = torch.svd(matrix)
+        return u @ s.pow_(power).diag() @ v.t()
