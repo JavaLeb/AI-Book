@@ -34,6 +34,8 @@ class BaseOptimizer:
         # self.params.grad = torch.autograd.grad(loss, self.params, create_graph=True)[0]
         self.t += 1
 
+        return self.params.grad.clone()
+
     def grad_loss(self, loss):
         """
         计算梯度.
@@ -115,10 +117,12 @@ class BaseMomentumOptimizer(BaseOptimizer):
 
     def update_m(self):
         self.m = self.momentum_one * self.m + self.momentum_two * self.params.grad
+        self.m_hat = self.m
         return self.m
 
     def update_s(self):
         self.s = self.decay_factor_one * self.s + self.decay_factor_two * self.params.grad ** 2
+        self.s_hat = self.s
         return self.s
 
     def correct_m(self):
@@ -228,8 +232,8 @@ class MomentumOptimizer(BaseMomentumOptimizer):
     """
 
     def __init__(self, params, lr=0.01, momentum=0.9, with_sgd=False, version=0):
-        if version in [0, 1, 2]:
-            self.alpha = [-lr, 1, -1][version]  # 根据实现版本，确定各系数的值.
+        if version in [0, 1, 2, 3]:
+            self.alpha = [-lr, 1, -1, lr][version]  # 根据实现版本，确定各系数的值.
         else:
             self.alpha = -lr  # 根据实现版本，确定各系数的值.
         self.gama = -lr / self.alpha
@@ -618,8 +622,7 @@ class ShampooOptimizer(BaseOptimizer):
         self.order = self.params.dim()
 
     def grad_loss(self, loss):
-        self.grad(loss)
-        grad = self.params.grad.clone()
+        grad = self.grad(loss)
         grad_t = grad.T
 
         self.left += grad @ grad_t
@@ -640,3 +643,51 @@ class ShampooOptimizer(BaseOptimizer):
     def matrix_power(self, matrix: torch.Tensor, power: float) -> torch.Tensor:
         u, s, v = torch.svd(matrix)
         return u @ s.pow_(power).diag() @ v.t()
+
+
+class LARSOptimizer(MomentumOptimizer):
+    def __init__(self, params, lr=0.01, momentum=0.9, weight_decay=1e-2, lars_c=0.01):
+        super().__init__(params=params, lr=lr, momentum=momentum, version=3)
+        self.weight_decay = weight_decay
+        self.lars_c = lars_c
+
+    def grad_loss(self, loss):
+        grad = self.grad(loss)
+        data = self.params.data
+        data_norm = torch.norm(data)
+        grad_norm = torch.norm(grad)
+        lars_lr = self.lars_c * data_norm / (grad_norm + self.weight_decay * data_norm + self.eps)
+        self.m = self.momentum_one * self.m + self.lr * lars_lr * (grad + self.weight_decay * data)
+        self.direction = self.m
+
+
+class LambOptimizer(AdamOptimizer):
+    def __init__(self, params, lr=0.01, momentum=0.9, decay_factor=0.999, weight_decay=1e-2, clamp_value: float = 10):
+        super().__init__(params=params, lr=lr, momentum=momentum, decay_factor=decay_factor)
+        self.weight_decay = weight_decay
+        self.clamp_value = clamp_value
+
+    def grad_loss(self, loss):
+        self.grad(loss)
+        self.update_m()
+        self.update_s()
+        self.correct_m()
+        self.correct_s()
+        r = self.get_m_direction() + self.weight_decay * self.params.data
+        self.direction = torch.norm(self.params.data).clamp(0, self.clamp_value) * r / torch.norm(r)
+
+
+class LookaheadOptimizer(AdamOptimizer):
+    def __init__(self, params, lr=0.01, momentum=0.9, decay_factor=0.999, weight_decay=1e-2, clamp_value: float = 10):
+        super().__init__(params=params, lr=lr, momentum=momentum, decay_factor=decay_factor)
+        self.weight_decay = weight_decay
+        self.clamp_value = clamp_value
+
+    def grad_loss(self, loss):
+        self.grad(loss)
+        self.update_m()
+        self.update_s()
+        self.correct_m()
+        self.correct_s()
+        r = self.get_m_direction() + self.weight_decay * self.params.data
+        self.direction = torch.norm(self.params.data).clamp(0, self.clamp_value) * r / torch.norm(r)
