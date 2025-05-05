@@ -6,9 +6,6 @@ from common import MSELoss
 
 if __name__ == '__main__':
 
-
-
-
     X, y = generate_data()
     init_params = torch.tensor([10.0, 10.0], requires_grad=True)
     for batch_size in range(10, 0, -1):  # batch_size的顺序不同，结果也不同.

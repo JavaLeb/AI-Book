@@ -10,8 +10,9 @@ from common import OptimizerComparator
 from torch.optim import Adadelta, Adagrad
 
 if __name__ == '__main__':
-    configs = [{'type': 'system', 'class': torch.optim.Adadelta, 'kwargs': {'lr': 10}},
-               {'type': 'custom', 'class': AdaDeltaOptimizer, 'kwargs': {'lr': 10}}]
+    lr=2000
+    configs = [{'type': 'system', 'class': torch.optim.Adadelta, 'kwargs': {'lr': lr}},
+               {'type': 'custom', 'class': AdaDeltaOptimizer, 'kwargs': {'lr': lr}}]
     comparator = OptimizerComparator(configs=configs)
     comparator.compare()
 

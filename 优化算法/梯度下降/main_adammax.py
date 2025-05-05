@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 from common import plot_contour, plot_points, plot_curve
 
 if __name__ == '__main__':
-    kwargs = {'lr': 0.01}
+    kwargs = {'lr': 1}
     configs = [{'type': 'system', 'class': torch.optim.Adamax, 'kwargs': kwargs},
                {'type': 'custom', 'class': AdamMaxOptimizer, 'kwargs': kwargs}]
     comparator = OptimizerComparator(configs=configs)

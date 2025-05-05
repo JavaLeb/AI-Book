@@ -17,11 +17,11 @@ class OptimizerComparator:
             if kwargs is None:
                 kwargs = {}
             if cls_type == 'system':
-                initial_param = torch.tensor([[-10.0], [10.0]], requires_grad=True)
+                initial_param = torch.tensor([-10.0, 10.0], requires_grad=True)
                 optimizer = cls([initial_param], **kwargs)
                 self.optimizers.append(SystemOptimizer(optimizer=optimizer))
             if cls_type == 'custom':
-                initial_param = torch.tensor([[10.0], [10.0]], requires_grad=True)
+                initial_param = torch.tensor([10.0, 10.0], requires_grad=True)
                 self.optimizers.append(cls(params=initial_param, **kwargs))
         if model:
             self.plot_model()
