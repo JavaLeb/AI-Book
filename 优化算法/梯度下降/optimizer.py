@@ -625,7 +625,7 @@ class LARSOptimizer(MomentumOptimizer):
         self.lars_c = lars_c
 
     def step(self):
-        grad = self.params.data
+        grad = self.params.grad
         data = self.params.data
         data_norm = torch.norm(data)
         grad_norm = torch.norm(grad)
@@ -673,7 +673,7 @@ class MADGRADOptimizer(MomentumOptimizer):
         self.init_data = self.params.data.clone()
 
     def step(self):
-        grad = self.params_grad
+        grad = self.params.grad
         alpha = self.lr * math.sqrt(self.t)
         self.m += alpha * grad
         self.s += alpha * grad * grad
