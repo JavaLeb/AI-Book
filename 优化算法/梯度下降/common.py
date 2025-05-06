@@ -10,20 +10,24 @@ class OptimizerComparator:
         self.configs = configs
         self.optimizers = []
 
-    def compare(self, model=False):
-
+    def compare(self, is_model=False):
         for config in self.configs:
-            kwargs, cls, cls_type = config['kwargs'], config['class'], config['type']
+            kwargs = config.get('kwargs', None)
+            cls = config.get('class', None)
+            cls_type = config.get('type', None)
+            initial_param = config.get('initial_param', None)
             if kwargs is None:
                 kwargs = {}
             if cls_type == 'system':
-                initial_param = torch.tensor([-10.0, 10.0], requires_grad=True)
+                if initial_param is None:
+                    initial_param = torch.tensor([-10.0, 10.0], requires_grad=True)
                 optimizer = cls([initial_param], **kwargs)
                 self.optimizers.append(SystemOptimizer(optimizer=optimizer))
             if cls_type == 'custom':
-                initial_param = torch.tensor([10.0, 10.0], requires_grad=True)
+                if initial_param is None:
+                    initial_param = torch.tensor([10.0, 10.0], requires_grad=True)
                 self.optimizers.append(cls(params=initial_param, **kwargs))
-        if model:
+        if is_model:
             self.plot_model()
         else:
             self.plot()
@@ -56,7 +60,7 @@ class OptimizerComparator:
                 criterion=criterion,
                 optimizer=optimizer
             )
-            model.fit(X, y, epochs=2000, batch_size=5, shuffled=False)
+            model.fit(X, y, epochs=2000, batch_size=5, shuffled=True)
             plot_points(model.points, optimizer, annotate=False)  # 绘制参数迭代路径.
         plt.show()
 
@@ -177,7 +181,7 @@ class VirtualModel:
         print(f"optimizer {self.optimizer.name}, "
               f"batch_size {self.batch_size}, "
               f"learning rate {self.optimizer.lr}, Converged at epoch {self.epoch_n}, iteration {self.iteration_t}, "
-              f"Optimized parameters: {np.round(self.params.detach().numpy(), 3)}, "
+              f"Optimized parameters: {np.round(self.optimizer.optimized_params.detach().numpy(), 4)}, "
               f"Final loss: {np.round(self.loss_history[-1], 4)}")
 
     def record(self) -> None:
@@ -270,7 +274,8 @@ class LinearRegression(VirtualModel):
 
     def train_epoch(self, epoch):
         # 获取样本编号.
-        shuffled_indices = np.random.permutation(self.n_samples) if self.shuffled else np.arange(self.n_samples)
+        rng = np.random.RandomState(seed=42)    # 保证每次随机结果一样.
+        shuffled_indices = rng.permutation(self.n_samples) if self.shuffled else np.arange(self.n_samples)
         for start_idx in range(0, self.n_samples, self.batch_size):  # 整个训练集分批训练.
             end_idx = min(start_idx + self.batch_size, self.n_samples)
             self.batch_indices = shuffled_indices[start_idx:end_idx]  # 获取一个批次样本索引.

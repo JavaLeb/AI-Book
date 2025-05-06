@@ -22,6 +22,8 @@ class BaseOptimizer:
         self.direction = None
         self.name = self.__class__.__name__
 
+        self.optimized_params = None
+
     def zero_grad(self):
         """
         清空梯度.
@@ -35,8 +37,8 @@ class BaseOptimizer:
         self.t += 1
 
     def grad_model(self, model):
-        X = model.X[model.batch_indices] if self.with_sgd else model.X
-        y = model.y[model.batch_indices] if self.with_sgd else model.y
+        X = model.X[model.batch_indices]
+        y = model.y[model.batch_indices]
         loss = model.criterion.forward(y_predict=model.forward(X), y_true=y)
         self.grad(loss)
 
@@ -51,6 +53,7 @@ class BaseOptimizer:
     def update_params(self):
         with torch.no_grad():
             self.params.data -= self.adaptive_lr * self.direction
+            self.optimized_params = self.params.data
 
     def optimize(self, loss):
         self.zero_grad()  # 清空梯度.
@@ -77,6 +80,7 @@ class SystemOptimizer(BaseOptimizer):
         :return:
         """
         self.optimizer.step()
+        self.optimized_params = self.params.data
 
 
 class BaseMomentumOptimizer(BaseOptimizer):
@@ -160,7 +164,7 @@ class NewtonOptimizer(BaseOptimizer):
         return hessian_matrix
 
 
-class SGDOptimizer(BaseMomentumOptimizer):
+class SGDOptimizer(BaseOptimizer):
     """
     随机梯度下降法：实现与梯度下降相同，不同在于训练时，样本损失不同.
     """
@@ -180,9 +184,39 @@ class SGDOptimizer(BaseMomentumOptimizer):
         添加正则化项后的梯度计算.
         :return:
         """
-        self.params.grad += self.gama * self.params.data
-        self.direction = self.params.grad
+        self.direction = self.params.grad + self.gama * self.params.data
         self.update_params()
+
+
+class ASGDOptimizer(BaseMomentumOptimizer):
+    """
+    随机梯度下降法：实现与梯度下降相同，不同在于训练时，样本损失不同.
+    """
+
+    def __init__(self, params, lr=0.01, t0=100):
+        """
+
+        :param params:
+        :param lr:
+        :param gama: 正则化项系数.
+        """
+        super().__init__(params=params, lr=lr, with_sgd=True)
+        self.optimized_params = torch.zeros_like(params)
+        self.t0 = t0
+        self.mu = 1.0
+
+    def step(self):
+        """
+        :return:
+        """
+        self.params.data -= self.adaptive_lr * self.params.grad  # update parameter
+
+        # averaging
+        if self.t - self.t0 > 1:  # t等价于算法中的t+1.  t0+1, t0+2, ... , t. 总个数t-t0.
+            self.mu = 1 / (self.t - self.t0)
+            self.optimized_params = (1 - self.mu) * self.optimized_params + self.mu * self.params
+        else:
+            self.optimized_params = self.params
 
 
 class SAGOptimizer(BaseOptimizer):
@@ -407,12 +441,13 @@ class SGDWOptimizer(SGDOptimizer):
         :param alpha:
         """
         super().__init__(params=params, lr=lr, gama=gama)
+        self.m = torch.zeros_like(self.params)
         self.weight_decay = weight_decay
         self.momentum_one = momentum
         self.momentum_two = alpha * lr
 
     def step(self):
-        self.update_m()
+        self.m = self.momentum_one * self.m + self.momentum_two * self.params.grad
         self.params.data -= self.m + self.lr * self.gama * self.params.data
 
 
