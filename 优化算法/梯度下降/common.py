@@ -31,13 +31,18 @@ class OptimizerComparator:
     def plot(self):
         criterion = SquareFunction(torch.tensor([1.0, 2.0]))
         plot_contour(criterion, r=15, n=400)  # 绘制等高线.
+        models = []
         for optimizer in self.optimizers:
             model = VirtualModel(
                 criterion=criterion,
                 optimizer=optimizer
             )
             model.fit()
+            models.append(model)
             plot_points(model.points, optimizer)  # 绘制参数迭代路径.
+        plt.figure(figsize=(10, 8))
+        for model in models:
+            plot_curve(model)
         plt.show()
 
     def plot_model(self):
@@ -371,8 +376,26 @@ def plot_contour_with_sample(loss, X_samples, y_samples, r, n):
     plt.grid(True)
 
 
-def plot_curve(loss_history):
-    plt.plot(loss_history)  # 学习曲线.
+def plot_curve(model):
+    loss_history = model.loss_history
+    optimizer = model.optimizer
+    plt.plot(loss_history, label=rf'{optimizer.name}($\eta$ = {optimizer.lr})')  # 学习曲线.
+    # 添加最后一个点的标记和坐标
+    if len(loss_history) > 0:
+        x_last = len(loss_history) - 1  # x坐标为最后一个epoch的索引
+        y_last = loss_history[-1]  # y坐标为最后一个loss值
+        # 用红色圆点突出显示最后一个点
+        plt.scatter(x_last, y_last, zorder=5, label=rf'final point {optimizer.name}($\eta$ = {optimizer.lr})')
+        # 在点右侧标注坐标（保留两位小数）
+        plt.annotate(
+            text=f'({x_last}, {y_last:.2f})',
+            xy=(x_last, y_last),
+            xytext=(-20, 5),  # 向左偏移20点，向下偏移5点
+            textcoords='offset points',
+            fontsize=9,
+            ha='right'  # 水平对齐方式
+        )
     plt.xlabel("Epochs", fontsize=10)
     plt.ylabel("Loss", fontsize=10)
     plt.title("Training Loss Curve", fontsize=10)
+    plt.legend()

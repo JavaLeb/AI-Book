@@ -476,6 +476,47 @@ class AdafactorOptimizer(BaseMomentumOptimizer):
         self.s = torch.matmul(self.row, self.col / torch.matmul(one_row, self.row))
 
 
+class AdaBoundOptimizer(AdamOptimizer):
+    """
+    Adam.
+    """
+
+    def __init__(self, params, lr=0.01, final_lr: float = 0.1, eps=1e-8, momentum=0.9, decay_factor=0.999,
+                 amsbound: bool = False):
+        super().__init__(params, lr=lr, eps=eps, momentum=momentum, decay_factor=decay_factor)
+        self.final_lr = final_lr
+        self.amsbound = amsbound
+        self.s_max = torch.zeros_like(self.params)
+
+    def step(self):
+        self.update_m()
+        self.update_s()
+        self.correct_m()
+
+        tmp = (1 - self.decay_factor_one) * self.t
+        lower_bound = self.final_lr * (1 - 1.0 / (tmp + 1))
+        upper_bound = self.final_lr * (1 + 1.0 / tmp)
+
+        if self.amsbound:
+            self.s_max = torch.max(self.s_max, self.s)
+            correct_max_s = self.s_max / (1 - self.decay_factor_one ** self.t)  # 修正.
+            step_size = torch.clamp(self.lr / (torch.sqrt(correct_max_s) + self.eps), lower_bound, upper_bound)
+        else:
+            self.correct_s()
+            step_size = torch.clamp(self.lr / (torch.sqrt(self.s_hat) + self.eps), lower_bound, upper_bound)
+        self.params.data -= step_size * self.m_hat
+
+
+class AMSBoundOptimizer(AdaBoundOptimizer):
+    """
+    Adam.
+    """
+
+    def __init__(self, params, lr=0.01, final_lr: float = 0.1, eps=1e-8, momentum=0.9, decay_factor=0.999):
+        super().__init__(params=params, lr=lr, final_lr=final_lr, eps=eps,
+                         momentum=momentum, decay_factor=decay_factor, amsbound=True)
+
+
 class RAdamOptimizer(AdamOptimizer):
     def __init__(self, params, lr=1e-3, eps=1e-8, momentum=0.9, decay_factor=0.999):
         super().__init__(params, lr=lr, eps=eps, momentum=momentum, decay_factor=decay_factor)
@@ -537,6 +578,20 @@ class QHAdamOptimizer(AdamOptimizer):
         denominator = self.v2 * self.s_hat + (1 - self.v2) * grad * grad
         self.direction = numerator / (torch.sqrt(denominator) + self.eps)
         self.update_params()
+
+
+class MADGRADOptimizer(MomentumOptimizer):
+    def __init__(self, params, lr=0.01, momentum=0.9):
+        super().__init__(params=params, lr=lr, momentum=momentum)
+        self.init_data = self.params.data.clone()
+
+    def step(self):
+        grad = self.params.grad
+        alpha = self.lr * math.sqrt(self.t)
+        self.m += alpha * grad
+        self.s += alpha * grad * grad
+        z = self.init_data - self.m / (torch.pow(self.s, 1 / 3) + self.eps)
+        self.params.data = self.momentum_one * self.params.data + (1 - self.momentum_one) * z
 
 
 class SWATSOptimizer(AdamOptimizer):
@@ -665,20 +720,6 @@ class LookaheadOptimizer(AdamOptimizer):
         self.correct_s()
         r = self.get_m_direction() + self.weight_decay * self.params.data
         self.direction = torch.norm(self.params.data).clamp(0, self.clamp_value) * r / torch.norm(r)
-
-
-class MADGRADOptimizer(MomentumOptimizer):
-    def __init__(self, params, lr=0.01, momentum=0.9):
-        super().__init__(params=params, lr=lr, momentum=momentum)
-        self.init_data = self.params.data.clone()
-
-    def step(self):
-        grad = self.params.grad
-        alpha = self.lr * math.sqrt(self.t)
-        self.m += alpha * grad
-        self.s += alpha * grad * grad
-        z = self.init_data - self.m / (torch.pow(self.s, 1 / 3) + self.eps)
-        self.params.data = self.momentum_one * self.params.data + (1 - self.momentum_one) * z
 
 
 class RpropOptimizer(BaseOptimizer):
