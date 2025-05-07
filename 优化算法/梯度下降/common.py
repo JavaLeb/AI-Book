@@ -2,7 +2,7 @@ import torch
 from torch import Tensor
 import numpy as np
 import matplotlib.pyplot as plt
-from optimizer import SystemOptimizer
+from optimizer import SystemOptimizer, LookaheadOptimizer
 
 
 class OptimizerComparator:
@@ -181,8 +181,8 @@ class VirtualModel:
         print(f"optimizer {self.optimizer.name}, "
               f"batch_size {self.batch_size}, "
               f"learning rate {self.optimizer.lr}, Converged at epoch {self.epoch_n}, iteration {self.iteration_t}, "
-              f"Optimized parameters: {np.round(self.optimizer.optimized_params.detach().numpy(), 4)}, "
-              f"Final loss: {np.round(self.loss_history[-1], 4)}")
+              f"Optimized parameters: {np.round(self.optimizer.optimized_params.detach().numpy(), 3)}, "
+              f"Final loss: {np.round(self.loss_history[-1], 3)}")
 
     def record(self) -> None:
         """
@@ -199,16 +199,30 @@ class VirtualModel:
         :param epoch: 当前轮次.
         :return:
         """
-        if isinstance(self.optimizer, SystemOptimizer) and isinstance(self.optimizer.optimizer, torch.optim.LBFGS):
-            lbfgs = self.optimizer.optimizer
+        is_lookahead = isinstance(self.optimizer, LookaheadOptimizer)
+        is_lbfgs = isinstance(self.optimizer, SystemOptimizer) and isinstance(self.optimizer.optimizer,
+                                                                              torch.optim.LBFGS)
+        if is_lbfgs:
+
+            op = self.optimizer.optimizer
 
             def closure():
-                lbfgs.zero_grad()
+                op.zero_grad()
                 loss = self.criterion.forward(self.params)
                 loss.backward()
                 return loss
 
-            lbfgs.step(closure)
+            op.step(closure)
+        # elif is_lookahead:
+        #     op = self.optimizer
+        #
+        #     def closure():
+        #         op.zero_grad()
+        #         loss = self.criterion.forward(self.params)
+        #         loss.backward()
+        #         return loss
+        #
+        #     op.step(closure)
         else:
             self.optimizer.optimize(self.loss)
 
@@ -274,7 +288,7 @@ class LinearRegression(VirtualModel):
 
     def train_epoch(self, epoch):
         # 获取样本编号.
-        rng = np.random.RandomState(seed=42)    # 保证每次随机结果一样.
+        rng = np.random.RandomState(seed=42)  # 保证每次随机结果一样.
         shuffled_indices = rng.permutation(self.n_samples) if self.shuffled else np.arange(self.n_samples)
         for start_idx in range(0, self.n_samples, self.batch_size):  # 整个训练集分批训练.
             end_idx = min(start_idx + self.batch_size, self.n_samples)
@@ -300,11 +314,11 @@ def plot_points(points, optimizer, annotate=True):
     """
     points = np.array(points)
     # 绘制参数点以及路径.
-    plt.plot(points[:, 0], points[:, 1], 'o-', markersize=8, linewidth=1,
+    plt.plot(points[:, 0], points[:, 1], 'o-', markersize=6, linewidth=0.8,
              label=rf'{optimizer.name}($\eta$ = {optimizer.lr})')
     if annotate:
         for i, (x, y) in enumerate(points):  # 标注迭代步骤
-            plt.annotate(str(i), (x, y), textcoords="offset points", xytext=(0, 10), ha='center')
+            plt.annotate(str(i), (x, y), textcoords="offset points", xytext=(0, 10), ha='center', fontsize=8)
     plt.legend()
 
 

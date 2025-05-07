@@ -21,7 +21,7 @@ class BaseOptimizer:
         self.adaptive_lr = lr
         self.direction = None
         self.name = self.__class__.__name__
-
+        self.loss = None
         self.optimized_params = None
 
     def zero_grad(self):
@@ -708,6 +708,51 @@ class ShampooOptimizer(BaseOptimizer):
         return u @ s.pow_(power).diag() @ v.t()
 
 
+class LookaheadOptimizer(BaseOptimizer):
+    """
+    Lookahead进行快权重更新.
+    """
+
+    def __init__(self, optimizer: BaseOptimizer, p: int = 5, alpha: float = 0.5, version=0):
+        super().__init__(params=optimizer.params, lr=optimizer.lr)
+        self.optimizer = optimizer  # 内部优化器.
+        self.p = p
+        self.alpha = alpha
+        self.slow_points = []
+        self.slow_param = None
+        self.n = 0
+        self.version = version
+
+    def step(self):
+        loss = self.optimizer.step()  # 快权重更新.
+
+        if self.version == 0:
+            if self.n == 0:
+                self._update()  # 慢参数更新.
+            self.n += 1
+            self.n %= self.p
+        else:
+            if self.slow_param is None:
+                self.slow_param = self.optimizer.params.data.clone()
+                self.slow_points.append(self.slow_param.clone())
+            if self.t % self.p == 0:  # 慢权重更新.
+                self.slow_param += self.alpha * (self.optimizer.params.data - self.slow_param)
+                self.slow_points.append(self.slow_param.clone())  # 记录慢参数.
+                self.optimizer.params.data = self.slow_param  # 使用慢权重更新快权重.
+        self.optimized_params = self.params
+
+        return loss
+
+    def _update(self) -> None:
+        if self.slow_param is None:  # 慢权重初始化.
+            self.slow_param = torch.clone(self.params.data).detach()
+            self.slow_points.append(self.slow_param.clone())
+        fast = self.params
+        fast.data.mul_(self.alpha).add_(self.slow_param, alpha=1.0 - self.alpha)
+        self.slow_param.data.copy_(fast)
+        self.slow_points.append(self.slow_param.clone())  # 记录慢参数.
+
+
 class LARSOptimizer(MomentumOptimizer):
     def __init__(self, params, lr=0.01, momentum=0.9, weight_decay=1e-2, lars_c=0.01):
         super().__init__(params=params, lr=lr, momentum=momentum, version=0)
@@ -739,22 +784,6 @@ class LambOptimizer(AdamOptimizer):
         r = self.get_m_direction() + self.weight_decay * self.params.data
         self.direction = torch.norm(self.params.data).clamp(0, self.clamp_value) * r / torch.norm(r)
         self.update_params()
-
-
-class LookaheadOptimizer(AdamOptimizer):
-    def __init__(self, params, lr=0.01, momentum=0.9, decay_factor=0.999, weight_decay=1e-2, clamp_value: float = 10):
-        super().__init__(params=params, lr=lr, momentum=momentum, decay_factor=decay_factor)
-        self.weight_decay = weight_decay
-        self.clamp_value = clamp_value
-
-    def grad_loss(self, loss):
-        self.grad(loss)
-        self.update_m()
-        self.update_s()
-        self.correct_m()
-        self.correct_s()
-        r = self.get_m_direction() + self.weight_decay * self.params.data
-        self.direction = torch.norm(self.params.data).clamp(0, self.clamp_value) * r / torch.norm(r)
 
 
 class RpropOptimizer(BaseOptimizer):
