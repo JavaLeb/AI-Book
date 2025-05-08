@@ -174,9 +174,11 @@ class VirtualModel:
         self.record()  # 记录参数点和损失值.
         for epoch in range(epochs):  # 循环训练.
             # 训练退出条件：当前损失值与上一次损失值误差小于给定阈值则退出.
-            # if self.iteration_t > 0 and  abs(self.loss.item())<self.optimizer.tol:
-            if self.iteration_t > 0 and abs(self.loss_history[-1] - self.loss_history[-2]) < self.optimizer.tol:
-                break
+            if self.iteration_t > 0:
+                reduce_stop = abs(self.loss_history[-1] - self.loss_history[-2]) < self.optimizer.tol
+                loss_stop = self.loss.item() < self.optimizer.tol
+                if reduce_stop or loss_stop:
+                    break
             self.train_epoch(epoch)
         print(f"optimizer {self.optimizer.name}, "
               f"batch_size {self.batch_size}, "

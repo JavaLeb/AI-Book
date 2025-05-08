@@ -786,6 +786,34 @@ class LambOptimizer(AdamOptimizer):
         self.update_params()
 
 
+class LionOptimizer(AdamOptimizer):
+    def __init__(self, params, lr=0.01, eps=1e-8, momentum=0.9, decay_factor=0.99, weight_decay=0.0):
+        super().__init__(params, lr=lr, eps=eps, momentum=momentum, decay_factor=decay_factor)
+        self.weight_decay = weight_decay
+
+    def step(self):
+        update = self.momentum_one * self.m + self.momentum_two * self.params.grad
+        self.m = self.decay_factor_one * self.m + self.decay_factor_two * self.params.grad
+        self.params.data = (1.0 - self.weight_decay * self.lr) * self.params.data - self.lr * update.sign_()
+        self.optimized_params = self.params
+
+
+class SophiaOptimizer(AdamOptimizer):
+    def __init__(self, params, lr=0.01, momentum=0.9, decay_factor=0.999, weight_decay=1e-2, clamp_value: float = 10):
+        super().__init__(params=params, lr=lr, momentum=momentum, decay_factor=decay_factor)
+        self.weight_decay = weight_decay
+        self.clamp_value = clamp_value
+
+    def step(self):
+        self.update_m()
+        self.update_s()
+        self.correct_m()
+        self.correct_s()
+        r = self.get_m_direction() + self.weight_decay * self.params.data
+        self.direction = torch.norm(self.params.data).clamp(0, self.clamp_value) * r / torch.norm(r)
+        self.update_params()
+
+
 class RpropOptimizer(BaseOptimizer):
     def __init__(self, params, lr=0.1, eta_plus=1.2, eta_minus=0.5, delta_min=1e-6, delta_max=50):
         super().__init__(params, lr=lr)
