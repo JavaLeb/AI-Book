@@ -15,18 +15,18 @@ class OptimizerComparator:
             kwargs = config.get('kwargs', None)
             cls = config.get('class', None)
             cls_type = config.get('type', None)
-            initial_param = config.get('initial_param', None)
+            initial_param = kwargs.get('params', None)
             if kwargs is None:
                 kwargs = {}
             if cls_type == 'system':
                 if initial_param is None:
-                    initial_param = torch.tensor([-10.0, 10.0], requires_grad=True)
-                optimizer = cls([initial_param], **kwargs)
+                    kwargs['params'] = [torch.tensor([-10.0, 10.0], requires_grad=True)]
+                optimizer = cls(**kwargs)
                 self.optimizers.append(SystemOptimizer(optimizer=optimizer))
             if cls_type == 'custom':
                 if initial_param is None:
-                    initial_param = torch.tensor([10.0, 10.0], requires_grad=True)
-                self.optimizers.append(cls(params=initial_param, **kwargs))
+                    kwargs['params'] = torch.tensor([10.0, 10.0], requires_grad=True)
+                self.optimizers.append(cls(**kwargs))
         if is_model:
             self.plot_model()
         else:
@@ -201,7 +201,6 @@ class VirtualModel:
         :param epoch: 当前轮次.
         :return:
         """
-        is_lookahead = isinstance(self.optimizer, LookaheadOptimizer)
         is_lbfgs = isinstance(self.optimizer, SystemOptimizer) and isinstance(self.optimizer.optimizer,
                                                                               torch.optim.LBFGS)
         if is_lbfgs:
@@ -215,16 +214,6 @@ class VirtualModel:
                 return loss
 
             op.step(closure)
-        # elif is_lookahead:
-        #     op = self.optimizer
-        #
-        #     def closure():
-        #         op.zero_grad()
-        #         loss = self.criterion.forward(self.params)
-        #         loss.backward()
-        #         return loss
-        #
-        #     op.step(closure)
         else:
             self.optimizer.optimize(self.loss)
 

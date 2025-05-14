@@ -786,6 +786,19 @@ class LambOptimizer(AdamOptimizer):
         self.update_params()
 
 
+class AdaBeliefOptimizer(AdamOptimizer):
+    def __init__(self, params, lr=0.01, eps=1e-8, momentum=0.9, decay_factor=0.999):
+        super().__init__(params, lr=lr, eps=eps, momentum=momentum, decay_factor=decay_factor)
+
+    def step(self):
+        self.update_m()
+        self.s = self.decay_factor_one * self.s + self.decay_factor_two * (self.params.grad - self.m) ** 2
+        self.correct_m()
+        self.correct_s()
+        self.direction = self.get_m_direction()
+        self.update_params()
+
+
 class LionOptimizer(AdamOptimizer):
     def __init__(self, params, lr=0.01, eps=1e-8, momentum=0.9, decay_factor=0.99, weight_decay=0.0):
         super().__init__(params, lr=lr, eps=eps, momentum=momentum, decay_factor=decay_factor)
@@ -798,20 +811,44 @@ class LionOptimizer(AdamOptimizer):
         self.optimized_params = self.params
 
 
-class SophiaOptimizer(AdamOptimizer):
-    def __init__(self, params, lr=0.01, momentum=0.9, decay_factor=0.999, weight_decay=1e-2, clamp_value: float = 10):
-        super().__init__(params=params, lr=lr, momentum=momentum, decay_factor=decay_factor)
+class SophiaHOptimizer(AdamOptimizer):
+    def __init__(self, params, lr=6e-2, momentum=0.96, decay_factor=0.99, weight_decay=0.0, eps=1e-12,
+                 clamp_value: float = 1e-2, p=10, b=1, distribution='gaussian'):
+        """
+
+        :param params: 参数.
+        :param lr: 学习率.
+        :param momentum: 动量参数.
+        :param decay_factor: hessian动量参数.
+        :param weight_decay: 权重衰减系数.
+        :param clamp_value: 裁剪阈值.
+        :param p: 迭代周期.
+        """
+        super().__init__(params=params, lr=lr, momentum=momentum, eps=eps, decay_factor=decay_factor)
+        self.h, self.diag_hessian = torch.zeros_like(self.params), torch.zeros_like(self.params)
         self.weight_decay = weight_decay
         self.clamp_value = clamp_value
+        self.p, self.b = p, b
+        self.distribution = distribution
 
     def step(self):
         self.update_m()
-        self.update_s()
-        self.correct_m()
-        self.correct_s()
-        r = self.get_m_direction() + self.weight_decay * self.params.data
-        self.direction = torch.norm(self.params.data).clamp(0, self.clamp_value) * r / torch.norm(r)
+        if self.t % self.p == 1:
+            self.diag_hessian.zero_()  # 将hessian对角元素置为0.
+            diag_hessian = self.compute_hutchinson_hessian()
+            self.h = self.decay_factor_one * self.h + self.decay_factor_two * diag_hessian
+        u = self.m / torch.clip(self.clamp_value * self.h, min=self.eps)
+        self.direction = torch.clamp(u, -1, 1)
         self.update_params()
+
+    def compute_hutchinson_hessian(self):
+        for i in range(self.b):
+            ui = torch.randint_like(self.params, 0, 1) * 2.0 - 1.0 \
+                if self.distribution == 'rademacher' else torch.randn_like(self.params)
+            hui = torch.autograd.grad(self.params.grad, self.params, grad_outputs=ui, retain_graph=i < self.b - 1)[
+                0]  # h * ui.
+            self.diag_hessian += hui * ui
+        return self.diag_hessian / self.b
 
 
 class RpropOptimizer(BaseOptimizer):
