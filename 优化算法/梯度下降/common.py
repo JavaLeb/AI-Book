@@ -12,12 +12,10 @@ class OptimizerComparator:
 
     def compare(self, is_model=False):
         for config in self.configs:
-            kwargs = config.get('kwargs', None)
-            cls = config.get('class', None)
-            cls_type = config.get('type', None)
+            kwargs = config.get('kwargs', {}).copy()  # copy拷贝，防止循环相互干扰.
+            cls = config.get('class', {})
+            cls_type = config.get('type', {})
             initial_param = kwargs.get('params', None)
-            if kwargs is None:
-                kwargs = {}
             if cls_type == 'system':
                 if initial_param is None:
                     kwargs['params'] = [torch.tensor([-10.0, 10.0], requires_grad=True)]
@@ -171,15 +169,29 @@ class VirtualModel:
         :param epochs: 训练轮数.
         :return:
         """
-        self.record()  # 记录参数点和损失值.
-        for epoch in range(epochs):  # 循环训练.
-            # 训练退出条件：当前损失值与上一次损失值误差小于给定阈值则退出.
-            if self.iteration_t > 0:
-                reduce_stop = abs(self.loss_history[-1] - self.loss_history[-2]) < self.optimizer.tol
-                loss_stop = self.loss.item() < self.optimizer.tol
-                if reduce_stop or loss_stop:
+        from torch.optim import LBFGS
+        is_closure = isinstance(self.optimizer, SystemOptimizer) and isinstance(self.optimizer.optimizer, LBFGS)
+        if is_closure:  # 闭包算法.
+            op = self.optimizer.optimizer
+
+            def closure():
+                op.zero_grad()
+                loss = self.criterion.forward(self.params)
+                loss.backward()
+                self.optimizer.optimized_params = self.params
+                self.record()
+                self.iteration_t += 1
+                self.epoch_n += 1
+
+                return loss
+
+            op.step(closure)
+        else:  # 非闭包优化算法.
+            self.record()  # 记录参数点和损失值.
+            for epoch in range(epochs):  # 循环训练.
+                if len(self.loss_history) > 1 and self.quit_condition():
                     break
-            self.train_epoch(epoch)
+                self.train_epoch(epoch)
         print(f"optimizer {self.optimizer.name}, "
               f"batch_size {self.batch_size}, "
               f"learning rate {self.optimizer.lr}, Converged at epoch {self.epoch_n}, iteration {self.iteration_t}, "
@@ -201,25 +213,20 @@ class VirtualModel:
         :param epoch: 当前轮次.
         :return:
         """
-        is_lbfgs = isinstance(self.optimizer, SystemOptimizer) and isinstance(self.optimizer.optimizer,
-                                                                              torch.optim.LBFGS)
-        if is_lbfgs:
-
-            op = self.optimizer.optimizer
-
-            def closure():
-                op.zero_grad()
-                loss = self.criterion.forward(self.params)
-                loss.backward()
-                return loss
-
-            op.step(closure)
-        else:
-            self.optimizer.optimize(self.loss)
-
+        self.optimizer.optimize(self.loss)
         self.record()  # 记录参数值和损失值.
         self.iteration_t = epoch + 1
         self.epoch_n = epoch + 1
+
+    def quit_condition(self):
+        grad_stop = self.params.grad.abs().max() <= self.optimizer.tol_grad  # 梯度接近于0.
+        data_change = self.points[-1] - self.points[-2]
+        data_change_stop = torch.abs(data_change).max() < self.optimizer.tol  # 参数更新接近于0.
+        loss_change = self.loss_history[-1] - self.loss_history[-2]
+        loss_change_stop = abs(loss_change) < self.optimizer.tol  # 损失变化接近于0.
+        loss_stop = abs(self.loss.item()) < self.optimizer.tol  # 损失接近于0
+
+        return loss_change_stop or loss_stop or grad_stop or data_change_stop
 
 
 class LinearRegression(VirtualModel):
