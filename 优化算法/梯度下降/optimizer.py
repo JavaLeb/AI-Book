@@ -884,61 +884,46 @@ class RpropOptimizer(BaseOptimizer):
         self.update_params()
 
 
-from collections import deque
-
-
 class LBFGSOptimizer(BaseOptimizer):
     def __init__(self, params, lr=0.1, history_size=100):
         super().__init__(params, lr=lr)
         self.history_size = history_size
-        self.queue = deque(maxlen=history_size)
-        self.changed_params = torch.zeros_like(self.params)
-        self.changed_grad = torch.zeros_like(self.params)
         self.prev_grad = torch.zeros_like(self.params)
-        self.d = None
-        self.al = [None] * history_size
-        self.d = torch.zeros_like(self.params)
-        self.tmp = torch.zeros_like(self.params)
         self.his_vector = []
         self.H_diag = None
 
     def step(self):
-        grad = self.params.grad
-        q = self.params.grad
-
+        grad = self.params.grad  # 梯度.
+        q = grad.neg()
         if self.t == 1:
-            self.d = q.neg()
-            self.H_diag = 1
+            self.H_diag = 1.0
+            r = self.H_diag * q
+            self.adaptive_lr = min(1.0, 1.0 / grad.abs().sum()) * self.lr
         else:
-            y = q.sub(self.prev_grad)
-            s = self.d.mul(self.tmp)
-            ys = y.dot(s)  # y*s
-            if ys > 1e-10:
+            g_ch = grad - self.prev_grad  # 梯度变化.
+            p_ch = self.adaptive_lr * self.direction  # 参数变化.
+            gama = g_ch.dot(p_ch)
+            if gama > 0:
                 if len(self.his_vector) == self.history_size:
                     self.his_vector.pop(0)
-                self.his_vector.append((y,s,1.0 / ys))
-                self.H_diag = ys / y.dot(y)  # (y*y)
+                self.his_vector.append((g_ch, p_ch, 1.0 / gama))
+                self.H_diag = gama / g_ch.dot(g_ch)
 
-            num_old = len(self.his_vector)
+            al = [0] * self.history_size
+            num = len(self.his_vector)
+            for i in range(num - 1, -1, -1):  # 后向循环.
+                g_ch, p_ch, ro = self.his_vector[i]
+                al[i] = p_ch.dot(q) * ro
+                q -= al[i] * g_ch
 
-            al = self.al
-            q = grad.neg()
-            for i in range(num_old - 1, -1, -1):
-                y,s,ro = self.his_vector[i]
-                al[i] = float(s.dot(q) * ro)
-                q.add_(y, alpha=-al[i])
-            self.d = r = torch.mul(q, self.H_diag)
-            for i in range(num_old):
-                y, s, ro = self.his_vector[i]
-                be_i = float(y.dot(r) * ro)
-                r.add_(s, alpha=al[i] - be_i)
-        if self.prev_grad is None:
-            self.prev_grad = grad.clone(memory_format=torch.contiguous_format)
-        else:
-            self.prev_grad.copy_(grad)
-        if self.t == 1:
-            self.tmp = min(1.0, 1.0 / grad.abs().sum()) * self.lr
-        else:
-            self.tmp = self.lr
-        self.params.data += self.tmp * self.d
+            r = self.H_diag * q
+            for i in range(num):  # 前向循环.
+                g_ch, p_ch, ro = self.his_vector[i]
+                beta_i = g_ch.dot(r) * ro
+                r += (al[i] - beta_i) * p_ch
+
+            self.adaptive_lr = self.lr
+        self.direction = r
+        self.params.data += self.adaptive_lr * self.direction
+        self.prev_grad = grad.clone()
         self.optimized_params = self.params
