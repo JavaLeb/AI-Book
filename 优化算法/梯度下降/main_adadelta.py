@@ -1,10 +1,12 @@
 import torch
-from optimizer import AdaDeltaOptimizer
-from common import OptimizerComparator
+from optimizer import AdaDeltaOptimizer,SystemOptimizer
+from common import VMOptimizerComparator
 
 if __name__ == '__main__':
     lr = 2000
-    configs = [{'type': 'system', 'class': torch.optim.Adadelta, 'kwargs': {'lr': lr}},
-               {'type': 'custom', 'class': AdaDeltaOptimizer, 'kwargs': {'lr': lr}}]
-    comparator = OptimizerComparator(configs=configs)
+    kwargs1 = {'lr': lr, 'params': [torch.tensor([-10.0, 10.0], requires_grad=True)]}
+    kwargs2 = {'lr': lr, 'params': torch.tensor([10.0, 10.0], requires_grad=True)}
+    sys_optimizer = SystemOptimizer(optimizer=torch.optim.Adadelta(**kwargs1))
+    user_optimizer = AdaDeltaOptimizer(**kwargs2)
+    comparator = VMOptimizerComparator(optimizers=[sys_optimizer, user_optimizer])
     comparator.compare()

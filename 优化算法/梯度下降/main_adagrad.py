@@ -1,10 +1,13 @@
 import torch
-from optimizer import AdaGradOptimizer
-from common import OptimizerComparator
+from optimizer import AdaGradOptimizer, SystemOptimizer
+from common import VMOptimizerComparator
 
 if __name__ == '__main__':
-    lr = 10
-    configs = [{'type': 'system', 'class': torch.optim.Adagrad, 'kwargs': {'lr': lr}},
-               {'type': 'custom', 'class': AdaGradOptimizer, 'kwargs': {'lr': lr}}]
-    comparator = OptimizerComparator(configs=configs)
+    lr = 1
+    kwargs1 = dict(lr=lr, params=[torch.tensor([-10.0, 10.0], requires_grad=True)])
+    kwargs2 = dict(lr=lr, params=torch.tensor([10.0, 10.0], requires_grad=True))
+    sys_optimizer = SystemOptimizer(optimizer=torch.optim.Adagrad(**kwargs1))
+    user_op = AdaGradOptimizer(**kwargs2)
+
+    comparator = VMOptimizerComparator(optimizers=[sys_optimizer, user_op])
     comparator.compare()
