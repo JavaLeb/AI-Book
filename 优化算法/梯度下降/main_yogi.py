@@ -1,10 +1,14 @@
 import torch_optimizer
-from optimizer import YogiOptimizer
-from common import OptimizerComparator
+from optimizer import YogiOptimizer, SystemOptimizer
+from common import VMOptimizerComparator
+import torch
 
 if __name__ == '__main__':
     lr = 0.1
-    configs = [{'type': 'system', 'class': torch_optimizer.Yogi, 'kwargs': {'lr': lr}},
-               {'type': 'custom', 'class': YogiOptimizer, 'kwargs': {'lr': lr}}]
-    comparator = OptimizerComparator(configs=configs)
+    kwargs1 = {'lr': lr, 'params': [torch.tensor([-10.0, 10.0], requires_grad=True)]}
+    kwargs2 = {'lr': lr, 'params': torch.tensor([10.0, 10.0], requires_grad=True)}
+
+    sys_optimizer = SystemOptimizer(optimizer=torch_optimizer.Yogi(**kwargs1))
+    user_optimizer = YogiOptimizer(**kwargs2)
+    comparator = VMOptimizerComparator(optimizers=[sys_optimizer, user_optimizer])
     comparator.compare()
