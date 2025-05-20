@@ -1,12 +1,14 @@
 import torch
-from optimizer import AMSGradOptimizer
-from common import OptimizerComparator
+from optimizer import AMSGradOptimizer, SystemOptimizer
+from common import VMOptimizerComparator
 
 if __name__ == '__main__':
-    lr = 0.9
-    kwargs1 = {'lr': lr, 'amsgrad': True}
-    kwargs2 = {'lr': lr, 'momentum': 0.9, 'decay_factor': 0.999}
-    configs = [{'type': 'system', 'class': torch.optim.Adam, 'kwargs': kwargs1},
-               {'type': 'custom', 'class': AMSGradOptimizer, 'kwargs': kwargs2}]
-    comparator = OptimizerComparator(configs=configs)
+    lr = 5
+    kwargs1 = {'lr': lr, 'amsgrad': True, 'params': [torch.tensor([-10.0, 10.0], requires_grad=True)]}
+    kwargs2 = {'lr': lr, 'momentum': 0.9, 'decay_factor': 0.999,
+               'params': torch.tensor([10.0, 10.0], requires_grad=True)}
+    sys_optimizer = SystemOptimizer(optimizer=torch.optim.Adam(**kwargs1))
+    user_op = AMSGradOptimizer(**kwargs2)
+
+    comparator = VMOptimizerComparator(optimizers=[sys_optimizer, user_op])
     comparator.compare()
