@@ -1,11 +1,14 @@
 import torch_optimizer
-from optimizer import MADGRADOptimizer
-from common import OptimizerComparator
+from optimizer import MADGRADOptimizer,SystemOptimizer
+from common import VMOptimizerComparator
+import torch
 
 
 if __name__ == '__main__':
     lr = 10
-    configs = [{'type': 'system', 'class': torch_optimizer.MADGRAD, 'kwargs': {'lr': lr}},
-               {'type': 'custom', 'class': MADGRADOptimizer, 'kwargs': {'lr': lr}}]
-    comparator = OptimizerComparator(configs=configs)
+    kwargs1 = {'lr': lr, 'params': [torch.tensor([-10.0, 10.0], requires_grad=True)]}
+    kwargs2 = {'lr': lr, 'params': torch.tensor([10.0, 10.0], requires_grad=True)}
+    sys_optimizer = SystemOptimizer(optimizer=torch_optimizer.MADGRAD(**kwargs1))
+    user_optimizer = MADGRADOptimizer(**kwargs2)
+    comparator = VMOptimizerComparator(optimizers=[sys_optimizer, user_optimizer])
     comparator.compare()

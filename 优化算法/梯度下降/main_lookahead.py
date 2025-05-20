@@ -1,10 +1,7 @@
 from torch_optimizer import Lookahead
-from common import OptimizerComparator
 from optimizer import LookaheadOptimizer, GDOptimizer, SystemOptimizer
 import torch
-from common import SquareFunction, plot_contour, VirtualModel, plot_points, plot_curve, generate_data, MSELoss, \
-    plot_contour_with_sample
-from common import LinearRegression
+from common import SquareFunction, plot_contour, VirtualModel, plot_points, plot_curve
 from matplotlib import pyplot as plt
 
 if __name__ == '__main__':
