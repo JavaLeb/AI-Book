@@ -1,27 +1,27 @@
 import torch
 from common import OptimizerComparator
-from optimizer import GDOptimizer
+from optimizer import GDOptimizer, SystemOptimizer
 
 if __name__ == '__main__':
-    kwargs = {'lr': 0.01}
-    configs = [{'type': 'system', 'class': torch.optim.SGD, 'kwargs': kwargs},
-               {'type': 'custom', 'class': GDOptimizer, 'kwargs': kwargs}]
-    comparator = OptimizerComparator(configs=configs)
-    comparator.compare()
+    kwargs1 = {'lr': 0.01, 'params': [torch.tensor([-10.0, 10.0], requires_grad=True)]}
+    kwargs2 = {'lr': 0.01, 'params': torch.tensor([10.0, 10.0], requires_grad=True)}
+    sys_optimizer = SystemOptimizer(optimizer=torch.optim.SGD(**kwargs1))
+    user_optimizer = GDOptimizer(**kwargs2)
+    comparator = OptimizerComparator()
+    comparator.compare(optimizers=[sys_optimizer, user_optimizer])
 
     # 动态学习率.
     kwargs1 = {'lr': 0.1, 'dynamic': False, 'params': torch.tensor([10.0, 10.0], requires_grad=True)}
     kwargs2 = {'lr': 0.1, 'dynamic': True, 'params': torch.tensor([-10.0, 10.0], requires_grad=True)}
-    configs = [{'type': 'custom', 'class': GDOptimizer, 'kwargs': kwargs1},
-               {'type': 'custom', 'class': GDOptimizer, 'kwargs': kwargs2}]
-    comparator = OptimizerComparator(configs=configs)
-    comparator.compare()
+    user_optimizer1 = GDOptimizer(**kwargs1)
+    user_optimizer2 = GDOptimizer(**kwargs2)
+    comparator = OptimizerComparator()
+    comparator.compare(optimizers=[user_optimizer1, user_optimizer2])
 
     # 线性回归.
-    lr = 0.01
-    kwargs1 = {'lr': lr, 'params': [torch.tensor([10.0, 10.0], requires_grad=True)]}
-    kwargs2 = {'lr': lr, 'params': torch.tensor([10.0, 10.0], requires_grad=True)}
-    configs = [{'type': 'system', 'class': torch.optim.SGD, 'kwargs': kwargs1},
-               {'type': 'custom', 'class': GDOptimizer, 'kwargs': kwargs2}]
-    comparator = OptimizerComparator(configs=configs)
-    comparator.compare(is_model=True)
+    kwargs1 = {'lr': 0.01, 'params': [torch.tensor([10.0, 10.0], requires_grad=True)]}
+    kwargs2 = {'lr': 0.01, 'params': torch.tensor([10.0, 10.0], requires_grad=True)}
+    sys_optimizer = SystemOptimizer(optimizer=torch.optim.SGD(**kwargs1))
+    user_optimizer = GDOptimizer(**kwargs2)
+    comparator = OptimizerComparator()
+    comparator.compare(optimizers=[sys_optimizer, user_optimizer], is_model=True)

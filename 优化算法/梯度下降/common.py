@@ -262,7 +262,7 @@ def plot_points(points, optimizer, annotate=True):
     plt.legend()
 
 
-def plot_contour(loss, r, n):
+def plot_contour(loss, r=15, n=400):
     # 生成等高线数据
     x = np.linspace(-r, r, n)  # 生成400个点, 包含-r和r，步长step=2r/(400-1).
     y = np.linspace(-r, r, n)
@@ -283,7 +283,7 @@ def plot_contour(loss, r, n):
     plt.grid(True)
 
 
-def plot_contour_with_sample(X_samples, y_samples, r, n):
+def plot_contour_with_sample(X_samples, y_samples, r=11, n=400):
     """
     绘制损失函数等高线.
     :return:
@@ -321,7 +321,7 @@ def plot_contour_with_sample(X_samples, y_samples, r, n):
     ax1.set_zlabel(r'$L$')
     plt.title(r'Loss Function')
 
-    ax2 = fig.add_subplot(122)
+    fig.add_subplot(122)
     contour = plt.contour(X, Y, Z, levels=np.logspace(0, 3, 10), cmap='viridis')  # 绘制等高线.
     plt.clabel(contour, inline=True, fontsize=8)
     # ax2.scatter(true_w, true_b, c='red', marker='x', s=100, label='True Params')
@@ -361,61 +361,42 @@ def plot_curve(model):
 
 
 class OptimizerComparator:
-    def __init__(self, configs):
-        self.configs = configs
+    def __init__(self):
         self.optimizers = []
 
-    def compare(self, is_model=False):
-        for config in self.configs:
-            kwargs = config.get('kwargs', {}).copy()  # copy拷贝，防止循环相互干扰.
-            cls = config.get('class', {})
-            cls_type = config.get('type', {})
-            initial_param = kwargs.get('params', None)
-            if cls_type == 'system':
-                if initial_param is None:
-                    kwargs['params'] = [torch.tensor([-10.0, 10.0], requires_grad=True)]
-                optimizer = cls(**kwargs)
-                self.optimizers.append(SystemOptimizer(optimizer=optimizer))
-            if cls_type == 'custom':
-                if initial_param is None:
-                    kwargs['params'] = torch.tensor([10.0, 10.0], requires_grad=True)
-                self.optimizers.append(cls(**kwargs))
+    def compare(self, optimizers, is_model=False):
+        self.optimizers = optimizers
         if is_model:
-            self.plot_model()
+            models = self.plot_model()
         else:
-            self.plot()
+            models = self.plot()
+        plt.figure(figsize=(10, 8))
+        for model in models:
+            plot_curve(model)
+        plt.show()
 
     def plot(self):
         criterion = SquareFunction(torch.tensor([1.0, 2.0]))
         plot_contour(criterion, r=15, n=400)  # 绘制等高线.
         models = []
         for optimizer in self.optimizers:
-            model = VirtualModel(
-                criterion=criterion,
-                optimizer=optimizer
-            )
+            model = VirtualModel(criterion=criterion, optimizer=optimizer)
             model.fit()
             models.append(model)
             plot_points(model.points, optimizer)  # 绘制参数迭代路径.
-        plt.figure(figsize=(10, 8))
-        for model in models:
-            plot_curve(model)
-        plt.show()
+        return models
 
     def plot_model(self):
-        X, y = generate_data()
         criterion = MSELoss()
+        X, y = generate_data()
         plot_contour_with_sample(X, y, r=11, n=400)  # 绘制等高线.
+        models = []
         for optimizer in self.optimizers:
-            model = LinearRegression(
-                in_features=1,
-                out_features=1,
-                criterion=criterion,
-                optimizer=optimizer
-            )
+            model = LinearRegression(in_features=1, out_features=1, criterion=criterion, optimizer=optimizer)
             model.fit(X, y, epochs=2000, batch_size=5, shuffled=True)
+            models.append(model)
             plot_points(model.points, optimizer, annotate=False)  # 绘制参数迭代路径.
-        plt.show()
+        return models
 
 
 def generate_data():
