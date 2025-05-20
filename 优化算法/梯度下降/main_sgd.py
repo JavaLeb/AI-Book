@@ -1,12 +1,12 @@
 import torch
-from common import OptimizerComparator
-from optimizer import SGDOptimizer
+from common import VMOptimizerComparator
+from optimizer import SGDOptimizer, SystemOptimizer
 
 if __name__ == '__main__':
-    kwargs = {'lr': 0.01}
-    configs = [{'type': 'system', 'class': torch.optim.SGD, 'kwargs': kwargs,
-                'initial_param': torch.tensor([10.0, 10.0], requires_grad=True)},
-               {'type': 'custom', 'class': SGDOptimizer, 'kwargs': kwargs,
-                'initial_param': torch.tensor([10.0, 10.0], requires_grad=True)}]
-    comparator = OptimizerComparator(configs=configs)
-    comparator.compare(is_model=True)
+    lr = 0.01
+    kwargs1 = {'lr': lr, 'params': [torch.tensor([-10.0, 10.0], requires_grad=True)]}
+    kwargs2 = {'lr': lr, 'params': torch.tensor([10.0, 10.0], requires_grad=True)}
+    sys_optimizer = SystemOptimizer(optimizer=torch.optim.SGD(**kwargs1))
+    user_optimizer = SGDOptimizer(**kwargs2)
+    comparator = VMOptimizerComparator(optimizers=[sys_optimizer, user_optimizer])
+    comparator.compare()
