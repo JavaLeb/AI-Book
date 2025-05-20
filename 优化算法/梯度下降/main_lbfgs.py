@@ -1,6 +1,6 @@
 import torch
-from optimizer import LBFGSOptimizer
-from common import OptimizerComparator
+from optimizer import LBFGSOptimizer, SystemOptimizer
+from common import VMOptimizerComparator
 from torch.optim import LBFGS
 
 if __name__ == '__main__':
@@ -8,9 +8,7 @@ if __name__ == '__main__':
     kwargs1 = {'lr': lr, 'max_iter': 2000, 'history_size': 5,
                'params': [torch.tensor([-10.0, 10.0], requires_grad=True)]}
     kwargs2 = {'lr': lr, 'history_size': 5, 'params': torch.tensor([10.0, 10.0], requires_grad=True)}
-    configs = [
-        {'type': 'system', 'class': LBFGS, 'kwargs': kwargs1},
-        {'type': 'custom', 'class': LBFGSOptimizer, 'kwargs': kwargs2}
-    ]
-    comparator = OptimizerComparator(configs=configs)
+    sys_optimizer = SystemOptimizer(optimizer=LBFGS(**kwargs1))
+    user_optimizer = LBFGSOptimizer(**kwargs2)
+    comparator = VMOptimizerComparator(optimizers=[sys_optimizer, user_optimizer])
     comparator.compare()
