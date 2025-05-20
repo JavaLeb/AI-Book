@@ -1,5 +1,4 @@
 import math
-
 import torch
 import numpy as np
 
@@ -8,15 +7,16 @@ class BaseOptimizer:
     """优化器基类"""
 
     def __init__(self, params, lr=0.001, eps=1e-8, tol=1e-9,
-                 tol_grad=1e-7, with_sgd=False):
+                 tol_grad=1e-7, with_sgd=False, dynamic=False):
         """
 
-        :param params:
-        :param lr:
-        :param eps:
-        :param tol: 误差.
-        :param tol_grad: 梯度误差.
-        :param with_sgd:
+        :param params: 待优化参数.
+        :param lr: 学习率.
+        :param eps: 用于调整分母，使其不为零.
+        :param tol: 允许阈值.
+        :param tol_grad: 梯度阈值.
+        :param with_sgd: 是否支持随机梯度下降.
+        :param dynamic: 是否支持动态学习率.
         """
         self.params = params
         self.lr = lr
@@ -24,12 +24,13 @@ class BaseOptimizer:
         self.tol = tol
         self.tol_grad = tol_grad
         self.with_sgd = with_sgd
-        self.t = 0
-        self.adaptive_lr = lr
-        self.direction = None
-        self.name = self.__class__.__name__
-        self.loss = None
-        self.optimized_params = None
+        self.dynamic = dynamic
+        self.step_t = 0  # 迭代时间步数, 它等于当前时间步+1.
+        self.adaptive_lr = lr  # 动态学习率.
+        self.direction = None  # 迭代方向.
+        self.name = self.__class__.__name__  # 类名.
+        self.loss = None  # 损失值.
+        self.optimized_params = None  # 最优参数.
 
     def zero_grad(self):
         """
@@ -40,54 +41,102 @@ class BaseOptimizer:
             self.params.grad.zero_()
 
     def grad(self, loss):
+        """
+        计算梯度.
+        :param loss: 损失值.
+        :return:
+        """
+        # 手工计算梯度.
         self.params.grad = torch.autograd.grad(loss, self.params, create_graph=True)[0]  # newton需要.
-        self.t += 1
 
     def grad_model(self, model):
+        """
+        针对模型优化，计算梯度.
+        :param model: 模型.
+        :return:
+        """
         X = model.X[model.batch_indices]
         y = model.y[model.batch_indices]
-        loss = model.criterion.forward(y_predict=model.forward(X), y_true=y)
-        self.grad(loss)
+        loss = model.criterion.forward(y_predict=model.forward(X), y_true=y)  # 计算模型的损失.
+        self.grad(loss)  # 计算梯度.
 
     def step(self):
         """
         顺序执行每个更新器，并应用更新策略.
         :return:
         """
-        self.direction = self.params.grad
-        self.update_params()
+        if self.dynamic:  # 动态学习率
+            self.adaptive_lr = self.dynamic_lr()  # 迭代步长.
+        self.direction = self.params.grad  # 迭代方向
+        self.update_params()  # 更新参数
+
+    def dynamic_lr(self, alpha=0.5, beta=1.0):
+        """
+        计算动态学习率.
+        :param alpha: 常数.
+        :param beta: 常数.
+        :return:
+        """
+        return self.lr / (beta * self.step_t + 1) ** alpha
 
     def update_params(self):
+        """
+        参数更新.
+        :return:
+        """
         with torch.no_grad():
-            self.params.data -= self.adaptive_lr * self.direction
-            self.optimized_params = self.params.data
+            self.params.data -= self.adaptive_lr * self.direction  # 参数更新.
+            self.optimized_params = self.params.data  # 设置最优参数.
+            self.step_t += 1
 
     def optimize(self, loss):
+        """
+        一步完整的优化.
+        :param loss: 损失值.
+        :return:
+        """
         self.zero_grad()  # 清空梯度.
-        self.grad(loss)
+        self.grad(loss)  # 计算梯度.
         self.step()  # 更新参数.
 
     def optimize_model(self, model):
+        """
+        针对模型的一步完整的优化.
+        :param model: 模型.
+        :return:
+        """
         self.zero_grad()  # 清空梯度.
-        self.grad_model(model)
+        self.grad_model(model)  # 计算梯度.
         self.step()  # 更新参数.
 
 
 class SystemOptimizer(BaseOptimizer):
+    """
+    封装了系统内置的优化算法，用于和自定义实现对比优化结果.
+    """
+
     def __init__(self, optimizer):
-        params = optimizer.param_groups[0].get('params')[0]
+        """
+        初始化方法.
+        :param optimizer: 内置优化器.
+        """
+        params = optimizer.param_groups[0].get('params')[0]  # 获取内置优化器待优化的参数.
         super().__init__(params)
-        self.optimizer = optimizer
-        self.lr = optimizer.defaults.get('lr')
-        self.name = optimizer.__class__.__name__
+        self.optimizer = optimizer  # 内置优化器.
+        self.lr = optimizer.defaults.get('lr')  # 获取内置优化器学习率.
+        self.name = optimizer.__class__.__name__  # 内置优化器类名.
 
     def step(self):
         """
-        顺序执行每个更新器，并应用更新策略.
+        优化步.
         :return:
         """
-        self.optimizer.step()
-        self.optimized_params = self.params.data
+        self.optimizer.step()  # 一步优化.
+        self.optimized_params = self.params.data  # 设置最优参数.
+
+
+class GDOptimizer(BaseOptimizer):
+    """梯度下降法"""
 
 
 class BaseMomentumOptimizer(BaseOptimizer):
@@ -119,22 +168,17 @@ class BaseMomentumOptimizer(BaseOptimizer):
         return self.s
 
     def correct_m(self):
-        self.m_hat = self.m / (1 - self.momentum_one ** self.t)
+        t = self.step_t + 1
+        self.m_hat = self.m / (1 - self.momentum_one ** t)
         return self.m_hat
 
     def correct_s(self):
-        self.s_hat = self.s / (1 - self.decay_factor_one ** self.t)
+        t = self.step_t + 1
+        self.s_hat = self.s / (1 - self.decay_factor_one ** t)
         return self.s_hat
 
     def get_m_direction(self):
         return self.m_hat / (torch.sqrt(self.s_hat) + self.eps)
-
-
-class GDOptimizer(BaseOptimizer):
-    """梯度下降法"""
-
-    def __init__(self, params, lr, with_sgd=False):
-        super().__init__(params=params, lr=lr, with_sgd=with_sgd)
 
 
 class NewtonOptimizer(BaseOptimizer):
@@ -219,8 +263,8 @@ class ASGDOptimizer(BaseMomentumOptimizer):
         self.params.data -= self.adaptive_lr * self.params.grad  # update parameter
 
         # averaging
-        if self.t - self.t0 > 1:  # t等价于算法中的t+1.  t0+1, t0+2, ... , t. 总个数t-t0.
-            self.mu = 1 / (self.t - self.t0)
+        if self.step_t - self.t0 > 1:  # t等价于算法中的t+1.  t0+1, t0+2, ... , t. 总个数t-t0.
+            self.mu = 1 / (self.step_t - self.t0)
             self.optimized_params = (1 - self.mu) * self.optimized_params + self.mu * self.params
         else:
             self.optimized_params = self.params
@@ -468,7 +512,7 @@ class AMSGradOptimizer(AdamOptimizer):
         self.update_s()
         self.correct_m()
         self.max_s = torch.max(self.max_s, self.s)
-        correct_max_s = self.max_s / (1 - self.decay_factor_one ** self.t)  # 修正.
+        correct_max_s = self.max_s / (1 - self.decay_factor_one ** self.step_t)  # 修正.
         self.direction = self.m_hat / (torch.sqrt(correct_max_s) + self.eps)
         self.update_params()
 
@@ -488,7 +532,7 @@ class AdafactorOptimizer(BaseMomentumOptimizer):
 
     def step(self):
         self.update_m()
-        self.decay_factor_two = self.t ** self.decay_factor_exp
+        self.decay_factor_two = self.step_t ** self.decay_factor_exp
         self.decay_factor_one = 1 - self.decay_factor_two
 
         if self.params.grad.dim() > 1:  # 矩阵形式.
@@ -500,7 +544,7 @@ class AdafactorOptimizer(BaseMomentumOptimizer):
         self.direction = u / max(1.0, rms_u / self.d)
 
         rms_params = self.params.norm(2).item() / self.params.numel() ** 0.5
-        rho_t = min(self.lr, 1 / self.t ** 0.5)
+        rho_t = min(self.lr, 1 / self.step_t ** 0.5)
         self.adaptive_lr = max(self.eps2, rms_params) * rho_t
 
         self.update_params()
@@ -535,13 +579,13 @@ class AdaBoundOptimizer(AdamOptimizer):
         self.update_s()
         self.correct_m()
 
-        tmp = (1 - self.decay_factor_one) * self.t
+        tmp = (1 - self.decay_factor_one) * self.step_t
         lower_bound = self.final_lr * (1 - 1.0 / (tmp + 1))
         upper_bound = self.final_lr * (1 + 1.0 / tmp)
 
         if self.amsbound:
             self.s_max = torch.max(self.s_max, self.s)
-            correct_max_s = self.s_max / (1 - self.decay_factor_one ** self.t)  # 修正.
+            correct_max_s = self.s_max / (1 - self.decay_factor_one ** self.step_t)  # 修正.
             step_size = torch.clamp(self.lr / (torch.sqrt(correct_max_s) + self.eps), lower_bound, upper_bound)
         else:
             self.correct_s()
@@ -568,8 +612,8 @@ class RAdamOptimizer(AdamOptimizer):
         self.update_m()
         self.update_s()
         self.correct_m()
-        a = self.decay_factor_one ** self.t
-        rho_t = self.rho_inf - 2 * self.t * a / (1 - a)
+        a = self.decay_factor_one ** self.step_t
+        rho_t = self.rho_inf - 2 * self.step_t * a / (1 - a)
         if rho_t > 5:  # 延迟修正.
             self.correct_s()
             b = (rho_t - 4) * (rho_t - 2) * self.rho_inf
@@ -591,8 +635,8 @@ class NadamOptimizer(AdamOptimizer):
         self.update_m()
         self.update_s()
 
-        mu = self.momentum_one * (1.0 - 0.5 * (0.96 ** (self.t * self.momentum_decay)))
-        mu_next = self.momentum_one * (1.0 - 0.5 * (0.96 ** ((self.t + 1) * self.momentum_decay)))
+        mu = self.momentum_one * (1.0 - 0.5 * (0.96 ** (self.step_t * self.momentum_decay)))
+        mu_next = self.momentum_one * (1.0 - 0.5 * (0.96 ** ((self.step_t + 1) * self.momentum_decay)))
         self.mu_product *= mu
         self.m_hat = self.m / (1 - self.mu_product * mu_next)
 
@@ -629,7 +673,7 @@ class MADGRADOptimizer(MomentumOptimizer):
 
     def step(self):
         grad = self.params.grad
-        alpha = self.lr * math.sqrt(self.t)
+        alpha = self.lr * math.sqrt(self.step_t)
         self.m += alpha * grad
         self.s += alpha * grad * grad
         z = self.init_data - self.m / (torch.pow(self.s, 1 / 3) + self.eps)
@@ -659,10 +703,10 @@ class SWATSOptimizer(AdamOptimizer):
             if abs(sim) != self.sim_e:
                 gama = - torch.sum(p * p) / sim
                 self.delta = self.decay_factor_one * self.delta + self.decay_factor_two * gama
-                yita = self.delta / (1 - self.decay_factor_one ** self.t)  # SGD学习率.
-                if self.t > 1 and abs(yita - gama) < self.e:  # 阶段切换.
+                yita = self.delta / (1 - self.decay_factor_one ** self.step_t)  # SGD学习率.
+                if self.step_t > 1 and abs(yita - gama) < self.e:  # 阶段切换.
                     self.phase = self.sgd
-                    print(f'{self.adam}切换到{self.sgd}: t={self.t}')
+                    print(f'{self.adam}切换到{self.sgd}: t={self.step_t}')
                     self.adaptive_lr = (1 - self.momentum_one) * yita  # 设置SGD的自适应学习率.
         else:  # SGD阶段.
             self.v = self.momentum_one * self.v + self.params.grad  # 更新SGD的梯度一阶矩.
@@ -712,7 +756,7 @@ class ShampooOptimizer(BaseOptimizer):
 
     def matrix_power(self, matrix: torch.Tensor, power: float) -> torch.Tensor:
         u, s, v = torch.svd(matrix)
-        return u @ s.pow_(power).diag() @ v.t()
+        return u @ s.pow_(power).diag() @ v.step_t()
 
 
 class LookaheadOptimizer(BaseOptimizer):
@@ -742,7 +786,7 @@ class LookaheadOptimizer(BaseOptimizer):
             if self.slow_param is None:
                 self.slow_param = self.optimizer.params.data.clone()
                 self.slow_points.append(self.slow_param.clone())
-            if self.t % self.p == 0:  # 慢权重更新.
+            if self.step_t % self.p == 0:  # 慢权重更新.
                 self.slow_param += self.alpha * (self.optimizer.params.data - self.slow_param)
                 self.slow_points.append(self.slow_param.clone())  # 记录慢参数.
                 self.optimizer.params.data = self.slow_param  # 使用慢权重更新快权重.
@@ -840,7 +884,7 @@ class SophiaHOptimizer(AdamOptimizer):
 
     def step(self):
         self.update_m()
-        if self.t % self.p == 1:
+        if self.step_t % self.p == 1:
             self.diag_hessian.zero_()  # 将hessian对角元素置为0.
             diag_hessian = self.compute_hutchinson_hessian()
             self.h = self.decay_factor_one * self.h + self.decay_factor_two * diag_hessian
@@ -895,7 +939,7 @@ class LBFGSOptimizer(BaseOptimizer):
     def step(self):
         grad = self.params.grad  # 梯度.
         q = grad.neg()
-        if self.t == 1:
+        if self.step_t == 1:
             self.H_diag = 1.0
             r = self.H_diag * q
             self.adaptive_lr = min(1.0, 1.0 / grad.abs().sum()) * self.lr

@@ -2,80 +2,7 @@ import torch
 from torch import Tensor
 import numpy as np
 import matplotlib.pyplot as plt
-from optimizer import SystemOptimizer, LookaheadOptimizer
-
-
-class OptimizerComparator:
-    def __init__(self, configs):
-        self.configs = configs
-        self.optimizers = []
-
-    def compare(self, is_model=False):
-        for config in self.configs:
-            kwargs = config.get('kwargs', {}).copy()  # copy拷贝，防止循环相互干扰.
-            cls = config.get('class', {})
-            cls_type = config.get('type', {})
-            initial_param = kwargs.get('params', None)
-            if cls_type == 'system':
-                if initial_param is None:
-                    kwargs['params'] = [torch.tensor([-10.0, 10.0], requires_grad=True)]
-                optimizer = cls(**kwargs)
-                self.optimizers.append(SystemOptimizer(optimizer=optimizer))
-            if cls_type == 'custom':
-                if initial_param is None:
-                    kwargs['params'] = torch.tensor([10.0, 10.0], requires_grad=True)
-                self.optimizers.append(cls(**kwargs))
-        if is_model:
-            self.plot_model()
-        else:
-            self.plot()
-
-    def plot(self):
-        criterion = SquareFunction(torch.tensor([1.0, 2.0]))
-        plot_contour(criterion, r=15, n=400)  # 绘制等高线.
-        models = []
-        for optimizer in self.optimizers:
-            model = VirtualModel(
-                criterion=criterion,
-                optimizer=optimizer
-            )
-            model.fit()
-            models.append(model)
-            plot_points(model.points, optimizer)  # 绘制参数迭代路径.
-        plt.figure(figsize=(10, 8))
-        for model in models:
-            plot_curve(model)
-        plt.show()
-
-    def plot_model(self):
-        X, y = generate_data()
-        criterion = MSELoss()
-        plot_contour_with_sample(criterion, X, y, r=11, n=400)  # 绘制等高线.
-        for optimizer in self.optimizers:
-            model = LinearRegression(
-                in_features=1,
-                out_features=1,
-                criterion=criterion,
-                optimizer=optimizer
-            )
-            model.fit(X, y, epochs=2000, batch_size=5, shuffled=True)
-            plot_points(model.points, optimizer, annotate=False)  # 绘制参数迭代路径.
-        plt.show()
-
-
-def generate_data():
-    """
-    生成一元线性回归样本数据.
-    :return: 数据.
-    """
-    torch.manual_seed(42)  # 设置种子，保证每次运行生成的数据一样.
-    n_samples = 10  # 样本数.
-    x = torch.linspace(0, 10, n_samples)  # 生成特征数据. shape:(10,).
-    true_w, true_b = 2.0, 1.0  # 参数的理论值.
-    y = true_w * x + true_b + torch.randn(x.size()) * 1.5  # 生成标签. shape: (10,)
-    X, y = x.reshape(-1, 1), y.reshape(-1, 1)  # 变换数据的维度. shape: (10,1)
-
-    return X, y
+from optimizer import SystemOptimizer
 
 
 class SquareFunction:
@@ -108,22 +35,26 @@ class MSELoss:
     """
 
     def __init__(self) -> None:
-        pass
+        self.loss = None
+        self.grad = None
 
     def forward(self, y_predict: Tensor, y_true: Tensor, reduction='mean') -> Tensor:
         """
 
-        :param y_predict: 预测标签值值.
-        :param y_true: 真实标签值.
+        :param y_predict: 预测值.
+        :param y_true: 真实值.
         :param reduction: 如何计算损失，mean: 平均，sum: 和，其它值: 什么也不做.
         :return:
         """
+        sub = (y_predict - y_true) ** 2 / 2.0
         if reduction == 'mean':
-            return torch.mean((y_predict - y_true) ** 2)
+            self.loss = torch.mean(sub)
         elif reduction == 'sum':
-            return torch.sum((y_predict - y_true) ** 2)
+            self.loss = torch.sum(sub)
         else:
-            return (y_predict - y_true) ** 2
+            self.loss = sub
+
+        return self.loss
 
     def forward_mesh(self, y_predict: Tensor, y_true: Tensor, reduction='mean') -> Tensor:
         return self.forward(y_predict=y_predict, y_true=y_true, reduction=reduction)
@@ -135,9 +66,9 @@ class MSELoss:
         :param y_true: 真实值.
         :return: 梯度.
         """
-        grad_output = 2 * (y_pred - y_true)
+        self.grad = 2 * (y_pred - y_true)
 
-        return grad_output
+        return self.grad
 
 
 class VirtualModel:
@@ -149,52 +80,51 @@ class VirtualModel:
     def __init__(self, criterion, optimizer) -> None:
         """
         初始化方法.
+        :param criterion: 损失函数.
         :param optimizer: 优化器.
         """
         self.loss = None  # 损失值.
         self.optimizer = optimizer  # 优化器.
         self.criterion = criterion  # 损失函数.
-        self.iteration_t = 0  # 最终的迭代k.
-        self.epoch_n = 0  # 轮数，遍历一遍数据集，算一轮.
-        self.params = self.optimizer.params  # 优化器参数.
+        self.iteration_t = 0  # 迭代次数.
+        self.epoch_t = 0  # 轮数，遍历一遍数据集，算一轮.
+        self.params = self.optimizer.params  # 模型参数.
         self.points = []  # 参数点.
         self.loss_history = []  # 历史损失值.
         self.batch_size = None  # 批量大小.
 
     def fit(self, epochs=2000) -> None:
         """
-
-        :param X: 特征数据.
-        :param y: 标签数据.
+        训练逻辑.
         :param epochs: 训练轮数.
         :return:
         """
         from torch.optim import LBFGS
         is_closure = isinstance(self.optimizer, SystemOptimizer) and isinstance(self.optimizer.optimizer, LBFGS)
-        if is_closure:  # 闭包算法.
+        if is_closure:  # 闭包类型的优化算法.
             op = self.optimizer.optimizer
 
-            def closure():
-                op.zero_grad()
-                loss = self.criterion.forward(self.params)
-                loss.backward()
-                self.optimizer.optimized_params = self.params
-                self.record()
+            def closure():  # 闭包.
+                op.zero_grad()  # 梯度清零.
+                loss = self.criterion.forward(self.params)  # 计算损失.
+                loss.backward()  # 自动计算梯度.
+                self.optimizer.optimized_params = self.params  # 最优参数.
+                self.record()  # 记录信息.
                 self.iteration_t += 1
-                self.epoch_n += 1
+                self.epoch_t += 1
 
                 return loss
 
-            op.step(closure)
-        else:  # 非闭包优化算法.
-            self.record()  # 记录参数点和损失值.
+            op.step(closure)  # 一次执行整个闭包.
+        else:  # 非闭包类型的优化算法.
+            self.record()  # 记录初始参数和损失值.
             for epoch in range(epochs):  # 循环训练.
-                if len(self.loss_history) > 1 and self.quit_condition():
+                self.train_epoch(epoch)  # 单轮训练.
+                if len(self.loss_history) > 1 and self.quit_condition():  # 检查退出机制.
                     break
-                self.train_epoch(epoch)
         print(f"optimizer {self.optimizer.name}, "
               f"batch_size {self.batch_size}, "
-              f"learning rate {self.optimizer.lr}, Converged at epoch {self.epoch_n}, iteration {self.iteration_t}, "
+              f"learning rate {self.optimizer.lr}, Converged at epoch {self.epoch_t}, iteration {self.iteration_t}, "
               f"Optimized parameters: {np.round(self.optimizer.optimized_params.detach().numpy(), 3)}, "
               f"Final loss: {np.round(self.loss_history[-1], 3)}")
 
@@ -203,9 +133,9 @@ class VirtualModel:
         记录参数值和损失值.
         :return:
         """
-        self.points.append(self.params.clone().detach())  # 记录初始参数值.
-        self.loss = self.criterion.forward(self.params)  # 计算初始参数的损失值.
-        self.loss_history.append(self.loss.item())  # 记录初始损失值.
+        self.points.append(self.params.clone().detach())  # 记录参数值.
+        self.loss = self.criterion.forward(self.params)  # 计算损失值.
+        self.loss_history.append(self.loss.item())  # 记录损失值.
 
     def train_epoch(self, epoch) -> None:
         """
@@ -213,25 +143,36 @@ class VirtualModel:
         :param epoch: 当前轮次.
         :return:
         """
-        self.optimizer.optimize(self.loss)
-        self.record()  # 记录参数值和损失值.
+        self.optimizer.optimize(self.loss)  # 优化一步.
+        self.record()  # 记录优化后的参数和损失值.
         self.iteration_t = epoch + 1
-        self.epoch_n = epoch + 1
+        self.epoch_t = epoch + 1
 
-    def quit_condition(self):
-        grad_stop = self.params.grad.abs().max() <= self.optimizer.tol_grad  # 梯度接近于0.
-        data_change = self.points[-1] - self.points[-2]
-        data_change_stop = torch.abs(data_change).max() < self.optimizer.tol  # 参数更新接近于0.
-        loss_change = self.loss_history[-1] - self.loss_history[-2]
-        loss_change_stop = abs(loss_change) < self.optimizer.tol  # 损失变化接近于0.
-        loss_stop = abs(self.loss.item()) < self.optimizer.tol  # 损失接近于0
+    def quit_condition(self) -> bool:
+        """
+        退出条件.
+        :return:
+        """
 
-        return loss_change_stop or loss_stop or grad_stop or data_change_stop
+        if self.params.grad is not None:  # 梯度接近于0.
+            grad_stop = self.params.grad.abs().max() < self.optimizer.tol_grad
+            if grad_stop:
+                return True
+        if len(self.points) > 1:  # 参数更新接近于0.
+            data_change_stop = torch.abs(self.points[-1] - self.points[-2]).max() < self.optimizer.tol
+            if data_change_stop:
+                return True
+        if len(self.loss_history) > 1:  # 损失变化接近于0.
+            loss_change = self.loss_history[-1] - self.loss_history[-2]
+            loss_change_stop = abs(loss_change) < self.optimizer.tol
+            return loss_change_stop
+
+        return False
 
 
 class LinearRegression(VirtualModel):
     """
-    线性回归.
+    线性回归模型.
     """
 
     def __init__(self, in_features: int, out_features: int, criterion, optimizer) -> None:
@@ -255,58 +196,59 @@ class LinearRegression(VirtualModel):
 
     def forward(self, X: Tensor) -> Tensor:
         """
-        计算预测标签值.
+        计算预测值.
         :param X: 特征值.
-        :return: 预测标签值.
+        :return: 预测值.
         """
 
-        ones = torch.ones((X.shape[0], 1))  # 添加的常数列
-        self.X_augmented = torch.cat([X, ones], dim=1)  # 沿特征维度拼接
+        ones = torch.ones((X.shape[0], 1))  # 添加的常数列[1].
+        X_augmented = torch.cat([X, ones], dim=1)  # 在最后一列添加常数项得到[X,1].
 
-        return self.X_augmented @ self.params.reshape(-1, 1)  # 矩阵乘法
+        return X_augmented @ self.params.reshape(-1, 1)  # 线性回归计算预测值y_hat=X*theta.
 
-    def backward(self):
-        """手动计算参数的梯度（模拟反向传播）"""
-        grad_output = self.criterion.backward(self.forward(self.X[self.batch_indices]), self.y[self.batch_indices])
-        if self.params.requires_grad:
-            mm = torch.mm(self.X_augmented.T, grad_output) / len(grad_output)
-            self.params.grad = mm.reshape(shape=self.params.shape)
-
-    def fit(self, X=None, y=None, epochs=2000, batch_size=None, shuffled=True):
+    def fit(self, X=None, y=None, epochs=2000, batch_size=None, shuffled=True) -> None:
+        """
+        拟合方法.
+        :param X: 样本特征.
+        :param y: 样本标签.
+        :param epochs: 训练轮数.
+        :param batch_size: 批大小.
+        :param shuffled: 是否打乱.
+        :return:
+        """
         self.X, self.y = X, y
         self.n_samples, self.n_features = X.shape  # 获取样本数和特征数.
         self.batch_size = self.n_samples if batch_size is None else batch_size
         self.shuffled = shuffled
         # 样本梯度，记录每个样本的梯度, shape=(n_sample,feature+1).
         self.samples_grads = torch.zeros(self.n_samples, self.in_features + 1)
-        # 整个数据集D的梯度, shape=(feature+1,0).
+        # 按照样本维度计算整个数据集D的平均梯度, shape=(feature+1,0).
         self.average_grads = torch.mean(self.samples_grads, dim=0)
-
         super().fit(epochs)
 
     def train_epoch(self, epoch):
-        # 获取样本编号.
         rng = np.random.RandomState(seed=42)  # 保证每次随机结果一样.
-        shuffled_indices = rng.permutation(self.n_samples) if self.shuffled else np.arange(self.n_samples)
-        for start_idx in range(0, self.n_samples, self.batch_size):  # 整个训练集分批训练.
+        shuffled_indices = rng.permutation(self.n_samples) if self.shuffled else np.arange(self.n_samples)  # 打乱样本.
+        # 整个循环表示一轮，每次循环表示一个批次.
+        for start_idx in range(0, self.n_samples, self.batch_size):
             end_idx = min(start_idx + self.batch_size, self.n_samples)
             self.batch_indices = shuffled_indices[start_idx:end_idx]  # 获取一个批次样本索引.
             self.optimizer.optimize_model(self)
             self.iteration_t += 1
-        self.record()
-        self.epoch_n = epoch + 1
+        self.record()  # 每训练一轮记录信息.
+        self.epoch_t = epoch + 1
 
     def record(self):
-        self.points.append(self.params.clone().detach())  # 记录参数初始值.
-        self.loss = self.criterion.forward(y_predict=self.forward(self.X), y_true=self.y)  # 整体损失.
-        self.loss_history.append(self.loss.item())  # 记录初始损失值.
+        self.points.append(self.params.clone().detach())  # 记录参数值.
+        self.loss = self.criterion.forward(y_predict=self.forward(self.X), y_true=self.y)  # 整个数据集损失.
+        self.loss_history.append(self.loss.item())  # 记录损失值.
 
 
 def plot_points(points, optimizer, annotate=True):
     """
 
+    :param optimizer:
     :param points: 坐标点.
-    :param lr: 学习率.
     :param annotate: 是否标准步骤.
     :return:
     """
@@ -341,7 +283,7 @@ def plot_contour(loss, r, n):
     plt.grid(True)
 
 
-def plot_contour_with_sample(loss, X_samples, y_samples, r, n):
+def plot_contour_with_sample(X_samples, y_samples, r, n):
     """
     绘制损失函数等高线.
     :return:
@@ -416,3 +358,76 @@ def plot_curve(model):
     plt.ylabel("Loss", fontsize=10)
     plt.title("Training Loss Curve", fontsize=10)
     plt.legend()
+
+
+class OptimizerComparator:
+    def __init__(self, configs):
+        self.configs = configs
+        self.optimizers = []
+
+    def compare(self, is_model=False):
+        for config in self.configs:
+            kwargs = config.get('kwargs', {}).copy()  # copy拷贝，防止循环相互干扰.
+            cls = config.get('class', {})
+            cls_type = config.get('type', {})
+            initial_param = kwargs.get('params', None)
+            if cls_type == 'system':
+                if initial_param is None:
+                    kwargs['params'] = [torch.tensor([-10.0, 10.0], requires_grad=True)]
+                optimizer = cls(**kwargs)
+                self.optimizers.append(SystemOptimizer(optimizer=optimizer))
+            if cls_type == 'custom':
+                if initial_param is None:
+                    kwargs['params'] = torch.tensor([10.0, 10.0], requires_grad=True)
+                self.optimizers.append(cls(**kwargs))
+        if is_model:
+            self.plot_model()
+        else:
+            self.plot()
+
+    def plot(self):
+        criterion = SquareFunction(torch.tensor([1.0, 2.0]))
+        plot_contour(criterion, r=15, n=400)  # 绘制等高线.
+        models = []
+        for optimizer in self.optimizers:
+            model = VirtualModel(
+                criterion=criterion,
+                optimizer=optimizer
+            )
+            model.fit()
+            models.append(model)
+            plot_points(model.points, optimizer)  # 绘制参数迭代路径.
+        plt.figure(figsize=(10, 8))
+        for model in models:
+            plot_curve(model)
+        plt.show()
+
+    def plot_model(self):
+        X, y = generate_data()
+        criterion = MSELoss()
+        plot_contour_with_sample(X, y, r=11, n=400)  # 绘制等高线.
+        for optimizer in self.optimizers:
+            model = LinearRegression(
+                in_features=1,
+                out_features=1,
+                criterion=criterion,
+                optimizer=optimizer
+            )
+            model.fit(X, y, epochs=2000, batch_size=5, shuffled=True)
+            plot_points(model.points, optimizer, annotate=False)  # 绘制参数迭代路径.
+        plt.show()
+
+
+def generate_data():
+    """
+    生成一元线性回归样本数据.
+    :return: 数据.
+    """
+    torch.manual_seed(42)  # 设置种子，保证每次运行生成的数据一样.
+    n_samples = 10  # 样本数.
+    x = torch.linspace(0, 10, n_samples)  # 生成特征数据. shape:(10,).
+    true_w, true_b = 2.0, 1.0  # 参数的理论值, 对应线性y=2x+1.
+    y = true_w * x + true_b + torch.randn(x.size()) * 1.5  # 添加正态分布干扰，生成标签. shape: (10,)
+    X, y = x.reshape(-1, 1), y.reshape(-1, 1)  # 变换数据的维度. shape: (10,1)
+
+    return X, y
