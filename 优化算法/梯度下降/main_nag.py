@@ -1,13 +1,18 @@
 import torch
-from common import OptimizerComparator
-from optimizer import NAGOptimizer,NesterovOptimizer
-
-
+from common import VMOptimizerComparator, SystemOptimizer
+from optimizer import NAGOptimizer, NesterovOptimizer, MomentumOptimizer
 
 if __name__ == '__main__':
-    configs = [{'type': 'system', 'class': torch.optim.SGD, 'kwargs': {'momentum': 0.9, 'lr': 0.1, 'nesterov': True}},
-               {'type': 'custom', 'class': NAGOptimizer, 'kwargs': {'momentum': 0.9, 'lr': 0.1}},
-               {'type': 'custom', 'class': NesterovOptimizer, 'kwargs': {'momentum': 0.9, 'lr': 0.1}}
-               ]
-    comparator = OptimizerComparator(configs=configs)
+    lr = 0.01
+    kwargs1 = dict(momentum=0.9, lr=lr, nesterov=True, params=[torch.tensor([-10.0, 10.0], requires_grad=True)])
+    kwargs2 = {'momentum': 0.9, 'lr': lr, 'params': torch.tensor([10.0, 10.0], requires_grad=True)}
+    kwargs3 = {'momentum': 0.9, 'lr': lr, 'params': torch.tensor([10.0, -10.0], requires_grad=True)}
+    kwargs4 = {'momentum': 0.9, 'lr': lr, 'params': torch.tensor([-10.0, -10.0], requires_grad=True)}
+
+    sys_optimizer = SystemOptimizer(optimizer=torch.optim.SGD(**kwargs1))
+    user_op2 = NesterovOptimizer(**kwargs2)
+    user_op3 = NAGOptimizer(**kwargs3)
+    user_op4 = MomentumOptimizer(**kwargs4)
+
+    comparator = VMOptimizerComparator(optimizers=[sys_optimizer, user_op2, user_op3, user_op4])
     comparator.compare()

@@ -1,11 +1,12 @@
 import torch
-from optimizer import NewtonOptimizer
-from common import OptimizerComparator
+from optimizer import NewtonOptimizer, SystemOptimizer
+from common import VMOptimizerComparator
 
 if __name__ == "__main__":
-    kwargs1 = {'lr': 0.1,'max_iter':2000}
-    kwargs2 = {'lr': 0.1}
-    configs = [{'type': 'system', 'class': torch.optim.LBFGS, 'kwargs': kwargs1},
-               {'type': 'custom', 'class': NewtonOptimizer, 'kwargs': kwargs2}]
-    comparator = OptimizerComparator(configs=configs)
+    lr = 0.1
+    kwargs1 = {'lr': lr, 'max_iter': 2000, 'params': [torch.tensor([-10.0, 10.0], requires_grad=True)]}
+    kwargs2 = {'lr': lr, 'params': torch.tensor([10.0, 10.0], requires_grad=True)}
+    sys_optimizer = SystemOptimizer(optimizer=torch.optim.LBFGS(**kwargs1))
+    user_optimizer = NewtonOptimizer(**kwargs2)
+    comparator = VMOptimizerComparator(optimizers=[sys_optimizer, user_optimizer])
     comparator.compare()

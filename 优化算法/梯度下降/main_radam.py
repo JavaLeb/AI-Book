@@ -1,10 +1,12 @@
 import torch
-from optimizer import RAdamOptimizer
-from common import OptimizerComparator
+from optimizer import RAdamOptimizer, SystemOptimizer
+from common import VMOptimizerComparator
 
 if __name__ == '__main__':
-    kwargs = {'lr': 0.1}
-    configs = [{'type': 'system', 'class': torch.optim.RAdam, 'kwargs': kwargs},
-               {'type': 'custom', 'class': RAdamOptimizer, 'kwargs': kwargs}]
-    comparator = OptimizerComparator(configs=configs)
+    lr = 0.1
+    kwargs1 = {'lr': lr, 'params': [torch.tensor([-10.0, 10.0], requires_grad=True)]}
+    kwargs2 = {'lr': lr, 'params': torch.tensor([10.0, 10.0], requires_grad=True)}
+    sys_optimizer = SystemOptimizer(optimizer=torch.optim.RAdam(**kwargs1))
+    user_optimizer = RAdamOptimizer(**kwargs2)
+    comparator = VMOptimizerComparator(optimizers=[sys_optimizer, user_optimizer])
     comparator.compare()
