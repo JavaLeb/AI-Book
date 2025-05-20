@@ -2,17 +2,19 @@ import torch
 from common import VirtualModel
 from common import SquareFunction
 from optimizer import ShampooOptimizer, SystemOptimizer
-from common import OptimizerComparator
+from common import VMOptimizerComparator
 from torch_optimizer import Shampoo
 import matplotlib.pyplot as plt
 from common import plot_contour, plot_points
 
 if __name__ == '__main__':
     # 向量形式.
-    lr = 5
-    configs = [{'type': 'system', 'class': Shampoo, 'kwargs': {'lr': lr}},
-               {'type': 'custom', 'class': ShampooOptimizer, 'kwargs': {'lr': lr}}]
-    comparator = OptimizerComparator(configs=configs)
+    lr = 1
+    kwargs1 = {'lr': lr, 'params': [torch.tensor([[-10.0, 10.0]], requires_grad=True)]}
+    kwargs2 = {'lr': lr, 'params': torch.tensor([[10.0, 10.0]], requires_grad=True)}
+    sys_optimizer = SystemOptimizer(optimizer=Shampoo(**kwargs1))
+    user_optimizer = ShampooOptimizer(**kwargs2)
+    comparator = VMOptimizerComparator(optimizers=[sys_optimizer, user_optimizer])
     comparator.compare()
 
     # 矩阵形式.

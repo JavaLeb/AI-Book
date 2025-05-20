@@ -1,8 +1,9 @@
 import torch
+import torch_optimizer
 from torch import Tensor
 import numpy as np
 import matplotlib.pyplot as plt
-from optimizer import SystemOptimizer
+from optimizer import SystemOptimizer, NAGOptimizer
 
 
 class SquareFunction:
@@ -133,7 +134,13 @@ class VirtualModel:
         记录参数值和损失值.
         :return:
         """
-        self.points.append(self.params.clone().detach())  # 记录参数值.
+        from optimizer import ShampooOptimizer
+        if isinstance(self.optimizer, ShampooOptimizer) or (
+                isinstance(self.optimizer, SystemOptimizer) and isinstance(self.optimizer.optimizer,
+                                                                           torch_optimizer.Shampoo)):
+            self.points.append(self.params.clone().detach()[0])  # 记录参数值.
+        else:
+            self.points.append(self.params.clone().detach())  # 记录参数值.
         self.loss = self.criterion.forward(self.params)  # 计算损失值.
         self.loss_history.append(self.loss.item())  # 记录损失值.
 
@@ -143,7 +150,19 @@ class VirtualModel:
         :param epoch: 当前轮次.
         :return:
         """
-        self.optimizer.optimize(self.loss)  # 优化一步.
+
+        if isinstance(self.optimizer, NAGOptimizer):
+            def closure():  # 闭包.
+                self.optimizer.zero_grad()
+                loss = self.criterion.forward(self.params)  # 计算损失.
+                loss.backward()
+
+                return loss
+
+            self.optimizer.step(closure)
+        else:
+            self.optimizer.optimize(self.loss)  # 优化一步.
+
         self.record()  # 记录优化后的参数和损失值.
         self.iteration_t = epoch + 1
         self.epoch_t = epoch + 1
@@ -360,43 +379,55 @@ def plot_curve(model):
     plt.legend()
 
 
-class OptimizerComparator:
-    def __init__(self):
-        self.optimizers = []
+class VMOptimizerComparator:
+    """
+    虚拟模型优化比较器.
+    """
 
-    def compare(self, optimizers, is_model=False):
+    def __init__(self, optimizers: list):
         self.optimizers = optimizers
-        if is_model:
-            models = self.plot_model()
-        else:
-            models = self.plot()
+        self.criterion = SquareFunction(torch.tensor([1.0, 2.0]))
+        self.annotate = True
+
+    def compare(self):
+        self.plot_contour()  # 绘制等高线.
+        models = []
+        for optimizer in self.optimizers:
+            model = self.init_model(optimizer)
+            models.append(model)
+            plot_points(model.points, model.optimizer, annotate=self.annotate)  # 绘制参数迭代路径.
         plt.figure(figsize=(10, 8))
         for model in models:
             plot_curve(model)
         plt.show()
 
-    def plot(self):
-        criterion = SquareFunction(torch.tensor([1.0, 2.0]))
-        plot_contour(criterion, r=15, n=400)  # 绘制等高线.
-        models = []
-        for optimizer in self.optimizers:
-            model = VirtualModel(criterion=criterion, optimizer=optimizer)
-            model.fit()
-            models.append(model)
-            plot_points(model.points, optimizer)  # 绘制参数迭代路径.
-        return models
+    def plot_contour(self):
+        plot_contour(self.criterion, r=15, n=400)  # 绘制等高线.
 
-    def plot_model(self):
-        criterion = MSELoss()
-        X, y = generate_data()
-        plot_contour_with_sample(X, y, r=11, n=400)  # 绘制等高线.
-        models = []
-        for optimizer in self.optimizers:
-            model = LinearRegression(in_features=1, out_features=1, criterion=criterion, optimizer=optimizer)
-            model.fit(X, y, epochs=2000, batch_size=5, shuffled=True)
-            models.append(model)
-            plot_points(model.points, optimizer, annotate=False)  # 绘制参数迭代路径.
-        return models
+    def init_model(self, optimizer):
+        model = VirtualModel(criterion=self.criterion, optimizer=optimizer)
+        model.fit()
+        return model
+
+
+class LROptimizerComparator(VMOptimizerComparator):
+    """
+    线性回归模型优化比较器.
+    """
+
+    def __init__(self, optimizers: list):
+        super().__init__(optimizers)
+        self.X, self.y = generate_data()
+        self.criterion = MSELoss()
+        self.annotate = False
+
+    def plot_contour(self):
+        plot_contour_with_sample(self.X, self.y, r=11, n=400)  # 绘制等高线.
+
+    def init_model(self, optimizer):
+        model = LinearRegression(in_features=1, out_features=1, criterion=self.criterion, optimizer=optimizer)
+        model.fit(self.X, self.y, epochs=2000, batch_size=5, shuffled=True)
+        return model
 
 
 def generate_data():
