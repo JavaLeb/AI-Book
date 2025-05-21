@@ -9,8 +9,8 @@ if __name__ == '__main__':
     # 矩阵形式, shape=(1,2).
     lr = 5
     kwargs1 = {'lr': lr, 'params': [torch.tensor([[-10.0, 10.0]], requires_grad=True)]}
-    kwargs2 = {'lr': lr, 'version': 0, 'params': torch.tensor([[10.0, 10.0]], requires_grad=True)}
-    kwargs3 = {'lr': lr, 'version': 1, 'params': torch.tensor([[10.0, 10.0]], requires_grad=True)}
+    kwargs2 = {'lr': lr, 'version': 'user', 'params': torch.tensor([[10.0, 10.0]], requires_grad=True)}
+    kwargs3 = {'lr': lr, 'version': 'sys', 'params': torch.tensor([[-10.0, -10.0]], requires_grad=True)}
     sys_optimizer = SystemOptimizer(optimizer=Shampoo(**kwargs1))
     user_optimizer2 = ShampooOptimizer(**kwargs2)
     user_optimizer3 = ShampooOptimizer(**kwargs3)
@@ -29,8 +29,5 @@ if __name__ == '__main__':
             params = torch.tensor([[10.0, 10.0, 10.0],
                                    [10.0, 10.0, 10.0]], requires_grad=True)
             optimizer = ShampooOptimizer(params=params, lr=lr)
-        model = VirtualModel(
-            criterion=criterion,
-            optimizer=optimizer
-        )
+        model = VirtualModel(criterion=criterion, optimizer=optimizer)
         model.fit()

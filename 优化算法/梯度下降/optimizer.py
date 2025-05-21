@@ -364,6 +364,14 @@ class MomentumOptimizer(FirstMomentumOptimizer):
     """
 
     def __init__(self, params, lr=0.01, momentum=0.9, with_sgd=False, version=0):
+        """
+
+        :param params: 待优化参数.
+        :param lr: 学习率.
+        :param momentum: 动量系数.
+        :param with_sgd: 是否支持随机梯度算法.
+        :param version: 版本.
+        """
         if version in [0, 1, 2, 3]:
             momentum_two = [1, -lr, -1, lr][version]
         else:
@@ -376,10 +384,10 @@ class MomentumOptimizer(FirstMomentumOptimizer):
         :return:
         """
         self.step_t += 1
-        self.update_m()
-        self.direction = self.m
-        self.adaptive_lr = self.lr / self.momentum_two
-        self.update_params()
+        self.update_m()  # 更新动量.
+        self.direction = self.m  # 设置迭代方法.
+        self.adaptive_lr = self.lr / self.momentum_two  # 设置自适应学习率.
+        self.update_params()  # 更新参数.
 
 
 class NAGOptimizer(FirstMomentumOptimizer):
@@ -430,13 +438,13 @@ class AggMoOptimizer(BaseOptimizer):
     def __init__(self, params, lr=1e-3, momentum_tuple=(0.0, 0.9, 0.99)):
         super().__init__(params, lr)
         self.k = len(momentum_tuple)  # 动量数量.
-        self.momentum_s = torch.tensor(momentum_tuple).view(-1, 1)  # 动量系数张量, shape(k,1).
+        self.momentum_coefficient = torch.tensor(momentum_tuple).view(-1, 1)  # 动量系数张量, shape(k,1).
         # +表示形状拼接.
         self.ms = torch.zeros((self.k,) + self.params.shape)  # 动量张量, shape(k,params.shape).
 
     def step(self):
         self.step_t += 1
-        self.ms = self.momentum_s * self.ms + self.params.grad  # 更新动量张量.
+        self.ms = self.momentum_coefficient * self.ms + self.params.grad  # 更新动量张量.
         agg_m = torch.mean(self.ms, dim=0)  # 按照动量系数维度聚合动量.
         self.direction = agg_m
         self.update_params()
@@ -911,8 +919,18 @@ class YogiOptimizer(AdamOptimizer):
 
 
 class ShampooOptimizer(BaseOptimizer):
+    """
+    Shampoo.
+    """
 
-    def __init__(self, params, lr=0.01, eps=1e-4, version=0):
+    def __init__(self, params, lr=0.01, eps=1e-4, version='user'):
+        """
+
+        :param params:
+        :param lr:
+        :param eps:
+        :param version:
+        """
         super().__init__(params, lr=lr, eps=eps)
         self.version = version
         self.order = self.params.dim()
@@ -922,7 +940,7 @@ class ShampooOptimizer(BaseOptimizer):
 
     def step(self):
         self.step_t += 1
-        if self.version == 0:
+        if self.version == 'user':
             self.user_version()  # 笔者实现.
         else:
             self.torch_optimizer_version()  # torch_optimizer.Shampoo实现
@@ -934,12 +952,12 @@ class ShampooOptimizer(BaseOptimizer):
         :return:
         """
         grad = self.params.grad
-        grad_t = grad.T
-        self.left += grad @ grad_t
-        self.right += grad_t @ grad
-        left_inv = matrix_power(self.left, -1 / (2 * self.order))
-        right_inv = matrix_power(self.right, -1 / (2 * self.order))
-        self.direction = left_inv @ grad @ right_inv
+        grad_t = grad.T  # 梯度转置.
+        self.left += grad @ grad_t  # 计算L.
+        self.right += grad_t @ grad  # 计算R.
+        left_inv = matrix_power(self.left, -1 / (2 * self.order))  # 计算L^(-1/4).
+        right_inv = matrix_power(self.right, -1 / (2 * self.order))  # 计算R^(-1/4).
+        self.direction = left_inv @ grad @ right_inv  # 计算L^(-1/4) * G * R^(-1/4).
 
     def torch_optimizer_version(self):
         """
