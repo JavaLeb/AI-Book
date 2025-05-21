@@ -27,7 +27,7 @@ class SquareFunction:
         return torch.sum(self.coefficient * params ** 2)
 
     def forward_mesh(self, params: Tensor) -> Tensor:
-        return torch.sum(self.coefficient * params ** 2, dim=-1)
+        return torch.sum(self.coefficient.reshape(1, -1) * params ** 2, dim=-1)
 
 
 class MSELoss:
@@ -100,9 +100,7 @@ class VirtualModel:
         :param epochs: 训练轮数.
         :return:
         """
-        from torch.optim import LBFGS
-        is_closure = isinstance(self.optimizer, SystemOptimizer) and isinstance(self.optimizer.optimizer, LBFGS)
-        if is_closure:  # 闭包类型的优化算法.
+        if self.optimizer.is_closure:  # 闭包类型的优化算法.
             op = self.optimizer.optimizer
 
             def closure():  # 闭包.
@@ -134,10 +132,7 @@ class VirtualModel:
         记录参数值和损失值.
         :return:
         """
-        from optimizer import ShampooOptimizer
-        if isinstance(self.optimizer, ShampooOptimizer) or (
-                isinstance(self.optimizer, SystemOptimizer) and isinstance(self.optimizer.optimizer,
-                                                                           torch_optimizer.Shampoo)):
+        if self.optimizer.is_shampoo:
             self.points.append(self.params.clone().detach()[0])  # 记录参数值.
         else:
             self.points.append(self.params.clone().detach())  # 记录参数值.

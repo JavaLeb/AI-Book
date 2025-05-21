@@ -1,7 +1,7 @@
 import math
 import torch
 import numpy as np
-
+import torch_optimizer
 
 class BaseOptimizer:
     """优化器基类"""
@@ -31,6 +31,8 @@ class BaseOptimizer:
         self.name = self.__class__.__name__  # 类名.
         self.loss = None  # 损失值.
         self.optimized_params = None  # 最优参数.
+        self.is_shampoo = False
+        self.is_closure=False
 
     def zero_grad(self):
         """
@@ -125,6 +127,8 @@ class SystemOptimizer(BaseOptimizer):
         self.optimizer = optimizer  # 内置优化器.
         self.lr = optimizer.defaults.get('lr')  # 获取内置优化器学习率.
         self.name = optimizer.__class__.__name__  # 内置优化器类名.
+        self.is_shampoo = isinstance(optimizer,torch_optimizer.Shampoo)
+        self.is_closure = isinstance(self.optimizer.optimizer, torch.optim.LBFGS)
 
     def step(self):
         """
@@ -849,25 +853,42 @@ class YogiOptimizer(AdamOptimizer):
 
 class ShampooOptimizer(BaseOptimizer):
 
-    def __init__(self, params, lr=0.01, eps=1e-4):
+    def __init__(self, params, lr=0.01, eps=1e-4, version=0):
         super().__init__(params, lr=lr, eps=eps)
+        self.version = version
+        self.order = self.params.dim()
         self.left = self.eps * torch.eye(self.params.size(0))
         self.right = self.eps * torch.eye(self.params.size(1))
-        self.order = self.params.dim()
+        self.is_shampoo = True
 
     def step(self):
         self.step_t += 1
+        if self.version == 0:
+            self.user_version()  # 笔者实现.
+        else:
+            self.torch_optimizer_version()  # torch_optimizer.Shampoo实现
+        self.update_params()
+
+    def user_version(self):
+        """
+        笔者实现.
+        :return:
+        """
         grad = self.params.grad
         grad_t = grad.T
+        self.left += grad @ grad_t
+        self.right += grad_t @ grad
+        left_inv = self.matrix_power(self.left, -1 / (2 * self.order))
+        right_inv = self.matrix_power(self.right, -1 / (2 * self.order))
+        self.direction = left_inv @ grad @ right_inv
 
-        # 自定义实现.
-        # self.left += grad @ grad_t
-        # self.right += grad_t @ grad
-        # left_inv = self.matrix_power(self.left, -1 / (2 * self.order))
-        # right_inv = self.matrix_power(self.right, -1 / (2 * self.order))
-        # self.direction = left_inv @ grad @ right_inv
-
-        # torch_optimizer.Shampoo实现.
+    def torch_optimizer_version(self):
+        """
+        torch_optimizer.Shampoo实现.
+        :return:
+        """
+        grad = self.params.grad
+        grad_t = grad.T
         self.left += grad @ grad_t
         left_inv = self.matrix_power(self.left, -1 / self.order)
         grad = left_inv @ grad
@@ -875,8 +896,6 @@ class ShampooOptimizer(BaseOptimizer):
         self.right += grad_t @ grad
         right_inv = self.matrix_power(self.right, -1 / self.order)
         self.direction = grad @ right_inv
-
-        self.update_params()
 
     def matrix_power(self, matrix: torch.Tensor, power: float) -> torch.Tensor:
         u, s, v = torch.svd(matrix)
