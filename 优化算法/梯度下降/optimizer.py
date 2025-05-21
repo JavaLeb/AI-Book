@@ -3,6 +3,7 @@ import torch
 import numpy as np
 import torch_optimizer
 
+
 class BaseOptimizer:
     """优化器基类"""
 
@@ -32,7 +33,7 @@ class BaseOptimizer:
         self.loss = None  # 损失值.
         self.optimized_params = None  # 最优参数.
         self.is_shampoo = False
-        self.is_closure=False
+        self.is_closure = False
 
     def zero_grad(self):
         """
@@ -127,8 +128,8 @@ class SystemOptimizer(BaseOptimizer):
         self.optimizer = optimizer  # 内置优化器.
         self.lr = optimizer.defaults.get('lr')  # 获取内置优化器学习率.
         self.name = optimizer.__class__.__name__  # 内置优化器类名.
-        self.is_shampoo = isinstance(optimizer,torch_optimizer.Shampoo)
-        self.is_closure = isinstance(self.optimizer.optimizer, torch.optim.LBFGS)
+        self.is_shampoo = isinstance(optimizer, torch_optimizer.Shampoo)
+        self.is_closure = isinstance(self.optimizer, torch.optim.LBFGS)
 
     def step(self):
         """
