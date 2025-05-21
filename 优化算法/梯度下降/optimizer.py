@@ -4,6 +4,11 @@ import numpy as np
 import torch_optimizer
 
 
+def matrix_power(matrix: torch.Tensor, power: float) -> torch.Tensor:
+    u, s, v = torch.svd(matrix)
+    return u @ s.pow_(power).diag() @ v.t()
+
+
 class BaseOptimizer:
     """优化器基类"""
 
@@ -483,13 +488,59 @@ class AdaGradOptimizer(SecMomentOptimizer):
     AdaGrad.
     """
 
-    def __init__(self, params, lr=0.01, eps: float = 1e-10):
+    def __init__(self, params, lr=0.01, eps: float = 1e-10, version='vector'):
+        """
+
+        :param params: 待优化参数.
+        :param lr: 学习率.
+        :param eps: 误差.
+        :param version: AdaGrad算法的形式，vector:向量形式, diag: 对角矩阵形式, full:全矩阵形式.
+        """
         super().__init__(params, lr=lr, eps=eps, decay_factor_one=1.0, decay_factor_two=1.0)
+        if version == 'diag' or version == 'full':
+            self.s = self.eps * torch.eye((self.params.size(0)))
+        self.version = version
 
     def step(self):
+        if self.version == 'vector':
+            self.step_vector()
+        elif self.version == 'diag':
+            self.step_diag()
+        else:
+            self.step_full_matrix()
+
+    def step_vector(self):
+        """
+        向量化形式.
+        :return:
+        """
         self.step_t += 1
         self.update_s()
         self.direction = self.params.grad / torch.sqrt(self.s + self.eps)
+        self.update_params()
+
+    def step_diag(self):
+        """
+        对角矩阵形式，与向量化形式等价.
+        :return:
+        """
+        self.step_t += 1
+        grad = self.params.grad
+        d = torch.diag(grad * grad)  # 转化成对角形式.
+        self.s += d
+        self.direction = matrix_power(self.s, -0.5) @ grad
+        self.update_params()
+
+    def step_full_matrix(self):
+        """
+        全矩阵形式.
+        :return:
+        """
+
+        self.step_t += 1
+        grad = self.params.grad
+        self.s += grad.view(-1, 1) @ grad.view(1, -1)
+        self.direction = matrix_power(self.s, -0.5) @ grad
         self.update_params()
 
 
@@ -499,6 +550,13 @@ class RMSPropOptimizer(SecMomentOptimizer):
     """
 
     def __init__(self, params, lr=1e-2, decay_factor=0.99, eps=1e-8):
+        """
+
+        :param params: 待优化参数.
+        :param lr: 学习率.
+        :param decay_factor: 衰减因子，对应于算法中的lambda.
+        :param eps:
+        """
         super().__init__(params, lr, eps=eps, decay_factor_one=decay_factor, decay_factor_two=1 - decay_factor)
 
     def step(self):
@@ -879,8 +937,8 @@ class ShampooOptimizer(BaseOptimizer):
         grad_t = grad.T
         self.left += grad @ grad_t
         self.right += grad_t @ grad
-        left_inv = self.matrix_power(self.left, -1 / (2 * self.order))
-        right_inv = self.matrix_power(self.right, -1 / (2 * self.order))
+        left_inv = matrix_power(self.left, -1 / (2 * self.order))
+        right_inv = matrix_power(self.right, -1 / (2 * self.order))
         self.direction = left_inv @ grad @ right_inv
 
     def torch_optimizer_version(self):
@@ -891,16 +949,12 @@ class ShampooOptimizer(BaseOptimizer):
         grad = self.params.grad
         grad_t = grad.T
         self.left += grad @ grad_t
-        left_inv = self.matrix_power(self.left, -1 / self.order)
+        left_inv = matrix_power(self.left, -1 / self.order)
         grad = left_inv @ grad
         grad_t = grad.T
         self.right += grad_t @ grad
-        right_inv = self.matrix_power(self.right, -1 / self.order)
+        right_inv = matrix_power(self.right, -1 / self.order)
         self.direction = grad @ right_inv
-
-    def matrix_power(self, matrix: torch.Tensor, power: float) -> torch.Tensor:
-        u, s, v = torch.svd(matrix)
-        return u @ s.pow_(power).diag() @ v.t()
 
 
 class LookaheadOptimizer(BaseOptimizer):
