@@ -18,6 +18,6 @@ if __name__ == '__main__':
     kwargs1 = {'lr': lr, 'amsbound': True, 'params': [torch.tensor([-10.0, 10.0], requires_grad=True)]}
     kwargs2 = {'lr': lr, 'amsbound': True, 'params': torch.tensor([10.0, 10.0], requires_grad=True)}
     sys_optimizer = SystemOptimizer(optimizer=AdaBound(**kwargs1))
-    user_optimizer = AdaBoundOptimizer(**kwargs2)
+    user_optimizer = AMSBoundOptimizer(**kwargs2)
     comparator = VMOptimizerComparator(optimizers=[sys_optimizer, user_optimizer])
     comparator.compare()

@@ -46,18 +46,3 @@ if __name__ == '__main__':
     for model in models:
         plot_curve(model)
     plt.show()
-
-    # # 线性回归.
-    # X, y = generate_data()
-    # criterion = MSELoss()
-    # plot_contour_with_sample(criterion, X, y, r=11, n=400)  # 绘制等高线.
-    # for optimizer in optimizers:
-    #     model = LinearRegression(
-    #         in_features=1,
-    #         out_features=1,
-    #         criterion=criterion,
-    #         optimizer=optimizer
-    #     )
-    #     model.fit(X, y, epochs=2000, batch_size=5, shuffled=True)
-    #     plot_points(model.points, optimizer, annotate=False)  # 绘制参数迭代路径.
-    # plt.show()

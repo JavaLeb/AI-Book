@@ -13,5 +13,3 @@ if __name__ == '__main__':
     user_optimizer = LARSOptimizer(**kwargs2)
     comparator = VMOptimizerComparator(optimizers=[sys_optimizer, user_optimizer])
     comparator.compare()
-
-

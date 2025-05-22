@@ -832,6 +832,10 @@ class SGDWOptimizer(SGDOptimizer):
 
 
 class AMSGradOptimizer(AdamOptimizer):
+    """
+    AMSGrad.
+    """
+
     def __init__(self, params, lr=0.01, eps=1e-8, momentum=0.9, decay_factor=0.999):
         super().__init__(params, lr=lr, eps=eps, momentum=momentum, decay_factor=decay_factor)
         self.max_s = torch.zeros_like(self.params)
@@ -848,14 +852,27 @@ class AMSGradOptimizer(AdamOptimizer):
 
 
 class AdafactorOptimizer(AdamOptimizer):
+    """
+    Adafactor.
+    """
 
-    def __init__(self, params, lr=0.01, eps=1e-30, eps2=1e-3, momentum=0.0, decay_factor_exp=-0.8, d=1.0):
+    def __init__(self, params, lr=0.01, eps=1e-30, eps2=1e-3, momentum=0.0, decay_factor_exp=-0.8, delta=1.0):
+        """
+
+        :param params: 待优化参数.
+        :param lr: 学习率.
+        :param eps: 算法停止阈值.
+        :param eps2: 阈值.
+        :param momentum: 动量系数.
+        :param decay_factor_exp: 梯度二阶矩衰减因子指数.
+        :param delta: 裁剪阈值.
+        """
         super().__init__(params, lr=lr, eps=eps, momentum=momentum, decay_factor=decay_factor_exp)
         self.eps2 = eps2
-        self.d = d
+        self.delta = delta
         self.decay_factor_exp = decay_factor_exp
         if self.params.dim() > 1:
-            self.row = torch.zeros(size=(self.params.size(0), 1))
+            self.row = torch.zeros(size=(self.params.size(0), 1))  # 初始行向量.
             self.col = torch.zeros(size=(1, self.params.size(1)))
 
     def step(self):
@@ -870,7 +887,7 @@ class AdafactorOptimizer(AdamOptimizer):
             self.update_s()
         u = self.m / (torch.sqrt(self.s) + self.eps)
         rms_u = u.norm(2).item() / u.numel() ** 0.5
-        self.direction = u / max(1.0, rms_u / self.d)
+        self.direction = u / max(1.0, rms_u / self.delta)
 
         rms_params = self.params.norm(2).item() / self.params.numel() ** 0.5
         rho_t = min(self.lr, 1 / self.step_t ** 0.5)
@@ -880,20 +897,22 @@ class AdafactorOptimizer(AdamOptimizer):
 
     def grad_loss_matrix(self):
 
-        r = self.params.grad.size(0)
-        c = self.params.grad.size(-1)
-        one_row = torch.ones((1, r))
-        one_col = torch.ones((c, 1))
+        r = self.params.grad.size(0)  # 矩阵的行数.
+        c = self.params.grad.size(-1)  # 矩阵的列数.
+        one_row = torch.ones((1, r))  # 分量全是1的一个行向量，1^T.
+        one_col = torch.ones((c, 1))  # 分量全是1的一个列向量，1.
 
         grad = self.params.grad
+        # 计算r.
         self.row = self.decay_factor_one * self.row + self.decay_factor_two * torch.matmul(grad * grad, one_col)
+        # 计算c.
         self.col = self.decay_factor_one * self.col + self.decay_factor_two * torch.matmul(one_row, grad * grad)
         self.s = torch.matmul(self.row, self.col / torch.matmul(one_row, self.row))
 
 
 class AdaBoundOptimizer(AdamOptimizer):
     """
-    Adam.
+    AdaBound.
     """
 
     def __init__(self, params, lr=0.01, final_lr: float = 0.1, eps=1e-8, momentum=0.9, decay_factor=0.999,
@@ -925,7 +944,7 @@ class AdaBoundOptimizer(AdamOptimizer):
 
 class AMSBoundOptimizer(AdaBoundOptimizer):
     """
-    Adam.
+    AMSBound.
     """
 
     def __init__(self, params, lr=0.01, final_lr: float = 0.1, eps=1e-8, momentum=0.9, decay_factor=0.999):
@@ -991,11 +1010,14 @@ class MADGRADOptimizer(AdamOptimizer):
         self.m += alpha * grad
         self.s += alpha * grad * grad
         z = self.init_data - self.m / (self.s.pow(1 / 3) + self.eps)
-        c = (1 - self.momentum_one)
+        c = 1 - self.momentum_one
         self.params.data = (1 - c) * self.params.data + c * z
 
 
 class YogiOptimizer(AdamOptimizer):
+    """
+    Yogi.
+    """
 
     def step(self):
         self.step_t += 1
@@ -1089,6 +1111,10 @@ class LambOptimizer(AdamOptimizer):
 
 
 class AdaBeliefOptimizer(AdamOptimizer):
+    """
+    AdaBelief.
+    """
+
     def __init__(self, params, lr=0.01, eps=1e-8, momentum=0.9, decay_factor=0.999):
         super().__init__(params, lr=lr, eps=eps, momentum=momentum, decay_factor=decay_factor)
 
@@ -1127,6 +1153,8 @@ class SophiaHOptimizer(AdamOptimizer):
         :param weight_decay: 权重衰减系数.
         :param delta: 裁剪阈值.
         :param period: 迭代周期.
+        :param num_samples: 样本数.
+        :param distribution 分布类型, gaussian: 高斯分布, rademacher:rademacher分布.
         """
         super().__init__(params=params, lr=lr, momentum=momentum, eps=eps, decay_factor=decay_factor)
         self.h, self.diag_hessian = torch.zeros_like(self.params), torch.zeros_like(self.params)
@@ -1147,6 +1175,10 @@ class SophiaHOptimizer(AdamOptimizer):
         self.update_params()
 
     def compute_hutchinson_hessian(self):
+        """
+        hutchinson估计器.
+        :return:
+        """
         for i in range(self.num_samples):
             ui = torch.randint_like(self.params, 0, 1) * 2.0 - 1.0 \
                 if self.distribution == 'rademacher' else torch.randn_like(self.params)

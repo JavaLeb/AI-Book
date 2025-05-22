@@ -4,7 +4,7 @@ from common import VMOptimizerComparator
 import torch
 
 if __name__ == '__main__':
-    lr = 0.1
+    lr = 5
     kwargs1 = {'lr': lr, 'params': [torch.tensor([-10.0, 10.0], requires_grad=True)]}
     kwargs2 = {'lr': lr, 'params': torch.tensor([10.0, 10.0], requires_grad=True)}
 
