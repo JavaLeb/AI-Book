@@ -39,6 +39,7 @@ class BaseOptimizer:
         self.optimized_params = None  # 最优参数.
         self.is_shampoo = False
         self.is_closure = False
+        self.optimized_params = self.params  # 设置最优参数.
 
     def zero_grad(self):
         """
@@ -95,7 +96,6 @@ class BaseOptimizer:
         """
         with torch.no_grad():
             self.params.data -= self.adaptive_lr * self.direction  # 参数更新.
-            self.optimized_params = self.params.data  # 设置最优参数.
 
     def optimize(self, loss):
         """
@@ -142,7 +142,6 @@ class SystemOptimizer(BaseOptimizer):
         :return:
         """
         self.optimizer.step()  # 一步优化.
-        self.optimized_params = self.params.data  # 设置最优参数.
 
 
 class GDOptimizer(BaseOptimizer):
@@ -227,7 +226,6 @@ class LBFGSOptimizer(BaseOptimizer):
         self.direction = r
         self.params.data += self.adaptive_lr * self.direction
         self.prev_grad = grad.clone()
-        self.optimized_params = self.params
 
 
 class SGDOptimizer(BaseOptimizer):
@@ -588,6 +586,63 @@ class AdaDeltaOptimizer(SecMomentOptimizer):
         self.update_params()
 
 
+class ShampooOptimizer(BaseOptimizer):
+    """
+    Shampoo.
+    """
+
+    def __init__(self, params, lr=0.01, eps=1e-4, version='user'):
+        """
+
+        :param params:
+        :param lr:
+        :param eps:
+        :param version:
+        """
+        super().__init__(params, lr=lr, eps=eps)
+        self.version = version
+        self.order = self.params.dim()
+        self.left = self.eps * torch.eye(self.params.size(0))
+        self.right = self.eps * torch.eye(self.params.size(1))
+        self.is_shampoo = True
+
+    def step(self):
+        self.step_t += 1
+        if self.version == 'user':
+            self.user_version()  # 笔者实现.
+        else:
+            self.torch_optimizer_version()  # torch_optimizer.Shampoo实现
+        self.update_params()
+
+    def user_version(self):
+        """
+        笔者实现.
+        :return:
+        """
+        grad = self.params.grad
+        grad_t = grad.T  # 梯度转置.
+        self.left += grad @ grad_t  # 计算L.
+        self.right += grad_t @ grad  # 计算R.
+        left_inv = matrix_power(self.left, -1 / (2 * self.order))  # 计算L^(-1/4).
+        right_inv = matrix_power(self.right, -1 / (2 * self.order))  # 计算R^(-1/4).
+        self.direction = left_inv @ grad @ right_inv  # 计算L^(-1/4) * G * R^(-1/4).
+
+    def torch_optimizer_version(self):
+        """
+        torch_optimizer.Shampoo实现.
+        :return:
+        """
+        grad = self.params.grad
+        grad_t = grad.T
+        self.left += grad @ grad_t
+        left_inv = matrix_power(self.left, -1 / self.order)
+        grad = left_inv @ grad
+        grad_t = grad.T
+        self.right += grad_t @ grad
+        right_inv = matrix_power(self.right, -1 / self.order)
+        self.direction = grad @ right_inv
+
+
 class AdamOptimizer(FirstMomentumOptimizer, SecMomentOptimizer):
     """
     Adam.
@@ -606,18 +661,15 @@ class AdamOptimizer(FirstMomentumOptimizer, SecMomentOptimizer):
         self.update_s()
         self.correct_m()
         self.correct_s()
-        self.direction = self.get_m_direction()
+        self.adaptive_lr = self.lr / (torch.sqrt(self.s_hat) + self.eps)
+        self.direction = self.m_hat
         self.update_params()
-
-    def get_m_direction(self):
-        """
-        获取动量方向.
-        :return:
-        """
-        return self.m_hat / (torch.sqrt(self.s_hat) + self.eps)
 
 
 class AdamMaxOptimizer(AdamOptimizer):
+    """
+    AdamMax.
+    """
 
     def step(self):
         self.step_t += 1
@@ -629,9 +681,60 @@ class AdamMaxOptimizer(AdamOptimizer):
         self.update_params()
 
 
+class NAdamOptimizer(AdamOptimizer):
+    """
+    Nadam.
+    """
+
+    def __init__(self, params, lr=1e-3, eps=1e-8, momentum=0.9, decay_factor=0.999, momentum_decay=4e-3):
+        """
+
+        :param params:
+        :param lr:
+        :param eps:
+        :param momentum:
+        :param decay_factor:
+        :param momentum_decay: 动量系数衰减因子,默认值1/250.
+        """
+        super().__init__(params, lr=lr, eps=eps, momentum=momentum, decay_factor=decay_factor)
+        self.momentum_decay = momentum_decay
+        self.mu_product = 1.0
+
+    def step(self):
+        self.step_t += 1
+        self.update_m()
+        self.update_s()
+        mu = self.get_mu(self.step_t)
+        mu_next = self.get_mu(self.step_t + 1)
+        self.mu_product *= mu
+        self.m_hat = self.m / (1 - self.mu_product * mu_next)  # 修正梯度一阶矩.
+        self.correct_s()
+        grad_hat = self.params.grad / (1 - self.mu_product)
+        m_bar = mu_next * self.m_hat + (1 - mu) * grad_hat
+        self.direction = m_bar / (torch.sqrt(self.s_hat) + self.eps)
+        self.update_params()
+
+    def get_mu(self, t):
+        return self.momentum_one * (1.0 - 0.5 * (0.96 ** (t * self.momentum_decay)))
+
+
 class AdamWOptimizer(AdamOptimizer):
+    """
+    AdamW.
+    """
+
     def __init__(self, params, lr=2e-3, eps: float = 1e-8, momentum=0.9, decay_factor=0.999,
                  weight_decay=1e-2, alpha=1.0):
+        """
+
+        :param params: 待优化参数.
+        :param lr: 学习率.
+        :param eps: 误差.
+        :param momentum: 动量系数.
+        :param decay_factor: 梯度二阶矩衰减因子.
+        :param weight_decay: 权重衰减因子.
+        :param alpha: 学习率与权重衰减调节因子.
+        """
         super().__init__(params=params, lr=lr, eps=eps, momentum=momentum, decay_factor=decay_factor)
         self.weight_decay = weight_decay
         self.alpha = alpha
@@ -642,8 +745,53 @@ class AdamWOptimizer(AdamOptimizer):
         self.update_s()
         self.correct_m()
         self.correct_s()
-        self.direction = self.alpha * self.get_m_direction() + self.weight_decay * self.params.data
+        self.direction = self.alpha * self.m_hat / (
+                torch.sqrt(self.s_hat) + self.eps) + self.weight_decay * self.params.data
         self.update_params()
+
+
+class SWATSOptimizer(AdamOptimizer):
+    def __init__(self, params, lr=1e-3, eps=1e-3, momentum=0.9, decay_factor=0.999, e=1e-6, sim_e=0):
+        """
+        初始化方法.
+        :param params: 待优化参数.
+        :param lr:
+        :param eps:
+        :param momentum:
+        :param decay_factor:
+        :param e:
+        :param sim_e:
+        """
+        super().__init__(params, lr=lr, eps=eps, momentum=momentum, decay_factor=decay_factor)
+        self.sgd = 'SGD'
+        self.adam = 'Adam'
+        self.phase = self.adam
+        self.v = torch.zeros_like(self.params)
+        self.delta = 0
+        self.e = e
+        self.sim_e = sim_e
+
+    def step(self):
+        self.step_t += 1
+        if self.phase == self.adam:  # Adam阶段.
+            self.update_m()  # 更新梯度一阶矩.
+            self.update_s()  # 更新梯度二阶矩.
+            self.correct_m()  # 修正梯度一阶矩.
+            self.correct_s()  # 修正梯度二阶矩.
+            p = -self.lr * self.m_hat / (torch.sqrt(self.s_hat) + self.eps)
+            self.params.data += p  # 参数更新.
+            sim = torch.sum(p * self.params.grad).item()
+            if abs(sim) != self.sim_e:
+                gama = - torch.sum(p * p) / sim
+                self.delta = self.decay_factor_one * self.delta + self.decay_factor_two * gama
+                yita = self.delta / (1 - self.decay_factor_one ** self.step_t)  # SGD学习率.
+                if self.step_t > 1 and abs(yita - gama) < self.e:  # 阶段切换.
+                    self.phase = self.sgd
+                    print(f'{self.adam}切换到{self.sgd}: t={self.step_t}')
+                    self.adaptive_lr = (1 - self.momentum_one) * yita  # 设置SGD的自适应学习率.
+        else:  # SGD阶段.
+            self.v = self.momentum_one * self.v + self.params.grad  # 更新SGD的梯度一阶矩.
+            self.params.data -= self.adaptive_lr * self.v  # 参数更新.
 
 
 class SGDWOptimizer(SGDOptimizer):
@@ -672,7 +820,6 @@ class SGDWOptimizer(SGDOptimizer):
         self.step_t += 1
         self.m = self.momentum_one * self.m + self.momentum_two * self.params.grad
         self.params.data -= self.m + self.lr * self.gama * self.params.data
-        self.optimized_params = self.params
 
 
 class AMSGradOptimizer(AdamOptimizer):
@@ -765,7 +912,6 @@ class AdaBoundOptimizer(AdamOptimizer):
             self.correct_s()
             step_size = torch.clamp(self.lr / (torch.sqrt(self.s_hat) + self.eps), lower_bound, upper_bound)
         self.params.data -= step_size * self.m_hat
-        self.optimized_params = self.params
 
 
 class AMSBoundOptimizer(AdaBoundOptimizer):
@@ -795,33 +941,9 @@ class RAdamOptimizer(AdamOptimizer):
             b = (rho_t - 4) * (rho_t - 2) * self.rho_inf
             c = (self.rho_inf - 4) * (self.rho_inf - 2) * rho_t
             r_t = math.sqrt(b / c)
-            self.direction = r_t * self.get_m_direction()
+            self.direction = r_t * self.m_hat / (torch.sqrt(self.s_hat) + self.eps)
         else:
             self.direction = self.m_hat
-        self.update_params()
-
-
-class NadamOptimizer(AdamOptimizer):
-    def __init__(self, params, lr=1e-3, eps=1e-8, momentum=0.9, decay_factor=0.999, momentum_decay=4e-3):
-        super().__init__(params, lr=lr, eps=eps, momentum=momentum, decay_factor=decay_factor)
-        self.momentum_decay = momentum_decay
-        self.mu_product = 1.0
-
-    def step(self):
-        self.step_t += 1
-        self.update_m()
-        self.update_s()
-
-        mu = self.momentum_one * (1.0 - 0.5 * (0.96 ** (self.step_t * self.momentum_decay)))
-        mu_next = self.momentum_one * (1.0 - 0.5 * (0.96 ** ((self.step_t + 1) * self.momentum_decay)))
-        self.mu_product *= mu
-        self.m_hat = self.m / (1 - self.mu_product * mu_next)
-
-        self.correct_s()
-        grad_hat = self.params.grad / (1 - self.mu_product)
-
-        m_bar = mu_next * self.m_hat + (1 - mu) * grad_hat
-        self.direction = m_bar / (torch.sqrt(self.s_hat) + self.eps)
         self.update_params()
 
 
@@ -845,6 +967,10 @@ class QHAdamOptimizer(AdamOptimizer):
 
 
 class MADGRADOptimizer(AdamOptimizer):
+    """
+    MADGRAD.
+    """
+
     def __init__(self, params, lr=0.01, momentum=0.9):
         super().__init__(params=params, lr=lr, momentum=momentum)
         self.init_data = self.params.data.clone()
@@ -855,54 +981,9 @@ class MADGRADOptimizer(AdamOptimizer):
         alpha = self.lr * math.sqrt(self.step_t)
         self.m += alpha * grad
         self.s += alpha * grad * grad
-        z = self.init_data - self.m / (torch.pow(self.s, 1 / 3) + self.eps)
-        self.params.data = self.momentum_one * self.params.data + (1 - self.momentum_one) * z
-        self.optimized_params = self.params
-
-
-class SWATSOptimizer(AdamOptimizer):
-    def __init__(self, params, lr=1e-3, eps=1e-3, momentum=0.9, decay_factor=0.999, e=1e-6, sim_e=0):
-        """
-        初始化方法.
-        :param params: 待优化参数.
-        :param lr:
-        :param eps:
-        :param momentum:
-        :param decay_factor:
-        :param e:
-        :param sim_e:
-        """
-        super().__init__(params, lr=lr, eps=eps, momentum=momentum, decay_factor=decay_factor)
-        self.sgd = 'SGD'
-        self.adam = 'Adam'
-        self.phase = self.adam
-        self.v = torch.zeros_like(self.params)
-        self.delta = 0
-        self.e = e
-        self.sim_e = sim_e
-
-    def step(self):
-        self.step_t += 1
-        if self.phase == self.adam:  # Adam阶段.
-            self.update_m()  # 更新梯度一阶矩.
-            self.update_s()  # 更新梯度二阶矩.
-            self.correct_m()  # 修正梯度一阶矩.
-            self.correct_s()  # 修正梯度二阶矩.
-            p = -self.lr * self.get_m_direction()
-            self.params.data += p  # 参数更新.
-            sim = torch.sum(p * self.params.grad).item()
-            if abs(sim) != self.sim_e:
-                gama = - torch.sum(p * p) / sim
-                self.delta = self.decay_factor_one * self.delta + self.decay_factor_two * gama
-                yita = self.delta / (1 - self.decay_factor_one ** self.step_t)  # SGD学习率.
-                if self.step_t > 1 and abs(yita - gama) < self.e:  # 阶段切换.
-                    self.phase = self.sgd
-                    print(f'{self.adam}切换到{self.sgd}: t={self.step_t}')
-                    self.adaptive_lr = (1 - self.momentum_one) * yita  # 设置SGD的自适应学习率.
-        else:  # SGD阶段.
-            self.v = self.momentum_one * self.v + self.params.grad  # 更新SGD的梯度一阶矩.
-            self.params.data -= self.adaptive_lr * self.v  # 参数更新.
-        self.optimized_params = self.params
+        z = self.init_data - self.m / (self.s.pow(1 / 3) + self.eps)
+        c = (1 - self.momentum_one)
+        self.params.data = (1 - c) * self.params.data + c * z
 
 
 class YogiOptimizer(AdamOptimizer):
@@ -916,63 +997,6 @@ class YogiOptimizer(AdamOptimizer):
         self.correct_s()
         self.direction = self.m_hat / (torch.sqrt(self.s_hat) + self.eps)
         self.update_params()
-
-
-class ShampooOptimizer(BaseOptimizer):
-    """
-    Shampoo.
-    """
-
-    def __init__(self, params, lr=0.01, eps=1e-4, version='user'):
-        """
-
-        :param params:
-        :param lr:
-        :param eps:
-        :param version:
-        """
-        super().__init__(params, lr=lr, eps=eps)
-        self.version = version
-        self.order = self.params.dim()
-        self.left = self.eps * torch.eye(self.params.size(0))
-        self.right = self.eps * torch.eye(self.params.size(1))
-        self.is_shampoo = True
-
-    def step(self):
-        self.step_t += 1
-        if self.version == 'user':
-            self.user_version()  # 笔者实现.
-        else:
-            self.torch_optimizer_version()  # torch_optimizer.Shampoo实现
-        self.update_params()
-
-    def user_version(self):
-        """
-        笔者实现.
-        :return:
-        """
-        grad = self.params.grad
-        grad_t = grad.T  # 梯度转置.
-        self.left += grad @ grad_t  # 计算L.
-        self.right += grad_t @ grad  # 计算R.
-        left_inv = matrix_power(self.left, -1 / (2 * self.order))  # 计算L^(-1/4).
-        right_inv = matrix_power(self.right, -1 / (2 * self.order))  # 计算R^(-1/4).
-        self.direction = left_inv @ grad @ right_inv  # 计算L^(-1/4) * G * R^(-1/4).
-
-    def torch_optimizer_version(self):
-        """
-        torch_optimizer.Shampoo实现.
-        :return:
-        """
-        grad = self.params.grad
-        grad_t = grad.T
-        self.left += grad @ grad_t
-        left_inv = matrix_power(self.left, -1 / self.order)
-        grad = left_inv @ grad
-        grad_t = grad.T
-        self.right += grad_t @ grad
-        right_inv = matrix_power(self.right, -1 / self.order)
-        self.direction = grad @ right_inv
 
 
 class LookaheadOptimizer(BaseOptimizer):
@@ -1007,7 +1031,6 @@ class LookaheadOptimizer(BaseOptimizer):
                 self.slow_param += self.alpha * (self.optimizer.params.data - self.slow_param)
                 self.slow_points.append(self.slow_param.clone())  # 记录慢参数.
                 self.optimizer.params.data = self.slow_param  # 使用慢权重更新快权重.
-        self.optimized_params = self.params
 
         return loss
 
@@ -1051,7 +1074,7 @@ class LambOptimizer(AdamOptimizer):
         self.update_s()
         self.correct_m()
         self.correct_s()
-        r = self.get_m_direction() + self.weight_decay * self.params.data
+        r = self.lr * self.m_hat / (torch.sqrt(self.s_hat) + self.eps) + self.weight_decay * self.params.data
         self.direction = torch.norm(self.params.data).clamp(0, self.clamp_value) * r / torch.norm(r)
         self.update_params()
 
@@ -1066,7 +1089,8 @@ class AdaBeliefOptimizer(AdamOptimizer):
         self.s = self.decay_factor_one * self.s + self.decay_factor_two * (self.params.grad - self.m) ** 2
         self.correct_m()
         self.correct_s()
-        self.direction = self.get_m_direction()
+        self.adaptive_lr = self.lr / (torch.sqrt(self.s_hat) + self.eps)
+        self.direction = self.m_hat
         self.update_params()
 
 
@@ -1080,7 +1104,6 @@ class LionOptimizer(AdamOptimizer):
         update = self.momentum_one * self.m + self.momentum_two * self.params.grad
         self.m = self.decay_factor_one * self.m + self.decay_factor_two * self.params.grad
         self.params.data = (1.0 - self.weight_decay * self.lr) * self.params.data - self.lr * update.sign_()
-        self.optimized_params = self.params
 
 
 class SophiaHOptimizer(AdamOptimizer):
