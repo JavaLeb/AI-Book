@@ -342,7 +342,7 @@ class FirstMomentumOptimizer(BaseOptimizer):
         更新梯度一阶矩.
         :return:
         """
-        self.m = self.momentum_one * self.m + self.momentum_two * self.params.grad
+        self.m = self.momentum_one * self.m + self.momentum_two * self.params.grad.data
 
         return self.m
 
@@ -475,7 +475,7 @@ class SecMomentOptimizer(BaseOptimizer):
         更新梯度二阶矩.
         :return:
         """
-        self.s = self.decay_factor_one * self.s + self.decay_factor_two * self.params.grad ** 2
+        self.s = self.decay_factor_one * self.s + self.decay_factor_two * self.params.grad.data ** 2
 
         return self.s
 
@@ -751,16 +751,21 @@ class AdamWOptimizer(AdamOptimizer):
 
 
 class SWATSOptimizer(AdamOptimizer):
-    def __init__(self, params, lr=1e-3, eps=1e-3, momentum=0.9, decay_factor=0.999, e=1e-6, sim_e=0):
+    """
+    SWATS.
+    """
+
+    def __init__(self, params, lr=1e-3, eps=1e-3, momentum=0.9, decay_factor=0.999,
+                 e: float = 1e-6, sim_e=0):
         """
         初始化方法.
         :param params: 待优化参数.
-        :param lr:
-        :param eps:
-        :param momentum:
-        :param decay_factor:
-        :param e:
-        :param sim_e:
+        :param lr: 学习率
+        :param eps: 阈值.
+        :param momentum: 动量系数.
+        :param decay_factor: 梯度二阶矩衰减因子.
+        :param e:  阶段切换误差.
+        :param sim_e: p向量与梯度向量相似度阈值.
         """
         super().__init__(params, lr=lr, eps=eps, momentum=momentum, decay_factor=decay_factor)
         self.sgd = 'SGD'
@@ -773,25 +778,29 @@ class SWATSOptimizer(AdamOptimizer):
 
     def step(self):
         self.step_t += 1
+        grad = self.params.grad.data
         if self.phase == self.adam:  # Adam阶段.
             self.update_m()  # 更新梯度一阶矩.
             self.update_s()  # 更新梯度二阶矩.
-            self.correct_m()  # 修正梯度一阶矩.
-            self.correct_s()  # 修正梯度二阶矩.
-            p = -self.lr * self.m_hat / (torch.sqrt(self.s_hat) + self.eps)
+            bias_correction1 = 1 - self.momentum_one ** self.step_t  # 1-beta^(t+1).
+            bias_correction2 = 1 - self.decay_factor_one ** self.step_t  # 1-lambda^(t+1).
+            step_size = self.lr * bias_correction2 ** 0.5 / bias_correction1
+            denom = torch.sqrt(self.s) + self.eps
+            p = -step_size * self.m / denom
             self.params.data += p  # 参数更新.
-            sim = torch.sum(p * self.params.grad).item()
-            if abs(sim) != self.sim_e:
-                gama = - torch.sum(p * p) / sim
+            pg = torch.sum(p * grad)
+
+            if pg != self.sim_e:  # 方向不垂直，或可将条件改为abs(sim) > self.sim_e.
+                gama = - torch.sum(p * p) / pg
                 self.delta = self.decay_factor_one * self.delta + self.decay_factor_two * gama
-                yita = self.delta / (1 - self.decay_factor_one ** self.step_t)  # SGD学习率.
-                if self.step_t > 1 and abs(yita - gama) < self.e:  # 阶段切换.
+                self.adaptive_lr = self.delta / bias_correction2  # SGD学习率.
+                if self.step_t > 1 and self.adaptive_lr.allclose(gama, rtol=self.e) and self.adaptive_lr > 0:  # 阶段切换.
                     self.phase = self.sgd
                     print(f'{self.adam}切换到{self.sgd}: t={self.step_t}')
-                    self.adaptive_lr = (1 - self.momentum_one) * yita  # 设置SGD的自适应学习率.
+
         else:  # SGD阶段.
-            self.v = self.momentum_one * self.v + self.params.grad  # 更新SGD的梯度一阶矩.
-            self.params.data -= self.adaptive_lr * self.v  # 参数更新.
+            self.v = self.momentum_one * self.v + grad  # 更新SGD的梯度一阶矩.
+            self.params.data -= self.adaptive_lr * self.momentum_two * self.v  # 参数更新.
 
 
 class SGDWOptimizer(SGDOptimizer):
