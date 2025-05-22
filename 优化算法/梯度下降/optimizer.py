@@ -36,7 +36,6 @@ class BaseOptimizer:
         self.direction = None  # 迭代方向.
         self.name = self.__class__.__name__  # 类名.
         self.loss = None  # 损失值.
-        self.optimized_params = None  # 最优参数.
         self.is_shampoo = False
         self.is_closure = False
         self.optimized_params = self.params  # 设置最优参数.
@@ -76,11 +75,11 @@ class BaseOptimizer:
         """
         self.step_t += 1
         if self.dynamic:  # 动态学习率
-            self.adaptive_lr = self.dynamic_lr()  # 迭代步长.
+            self.adaptive_lr = self.get_dynamic_lr()  # 迭代步长.
         self.direction = self.params.grad  # 迭代方向
         self.update_params()  # 更新参数
 
-    def dynamic_lr(self, alpha=0.5, beta=1.0):
+    def get_dynamic_lr(self, alpha=0.5, beta=1.0):
         """
         计算动态学习率.
         :param alpha: 常数.

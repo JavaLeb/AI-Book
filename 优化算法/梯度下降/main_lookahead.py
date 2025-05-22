@@ -1,8 +1,7 @@
 from torch_optimizer import Lookahead
 from optimizer import LookaheadOptimizer, GDOptimizer, SystemOptimizer
 import torch
-from common import SquareFunction, plot_contour, VirtualModel, plot_points, plot_curve
-from matplotlib import pyplot as plt
+from common import VMOptimizerComparator
 
 if __name__ == '__main__':
     lr = 0.1
@@ -27,22 +26,5 @@ if __name__ == '__main__':
     gd = GDOptimizer(params=initial_param4, lr=lr)  # 自定义实现gd.
 
     optimizers = [system_optimizer, lookahead_optimizer_0, lookahead_optimizer_1, gd]
-
-    # 多元函数.
-    criterion = SquareFunction(torch.tensor([1.0, 2.0]))
-    plot_contour(criterion, r=15, n=400)  # 绘制等高线.
-    models = []
-    for optimizer in optimizers:
-        model = VirtualModel(
-            criterion=criterion,
-            optimizer=optimizer
-        )
-        model.fit()
-        models.append(model)
-        plot_points(model.points, optimizer)  # 绘制参数迭代路径.
-    plot_points(lookahead_optimizer_0.slow_points, lookahead_optimizer_0, annotate=False)
-    plot_points(lookahead_optimizer_1.slow_points, lookahead_optimizer_1, annotate=False)
-    plt.figure(figsize=(10, 8))
-    for model in models:
-        plot_curve(model)
-    plt.show()
+    comparator = VMOptimizerComparator(optimizers=optimizers)
+    comparator.compare()

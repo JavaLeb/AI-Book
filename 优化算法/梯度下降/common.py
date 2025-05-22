@@ -1,9 +1,8 @@
 import torch
-import torch_optimizer
 from torch import Tensor
 import numpy as np
 import matplotlib.pyplot as plt
-from optimizer import SystemOptimizer, NAGOptimizer
+from optimizer import NAGOptimizer
 
 
 class SquareFunction:
@@ -220,7 +219,7 @@ class LinearRegression(VirtualModel):
 
         return X_augmented @ self.params.reshape(-1, 1)  # 线性回归计算预测值y_hat=X*theta.
 
-    def fit(self, X=None, y=None, epochs=2000, batch_size=None, shuffled=True) -> None:
+    def fit(self, X=None, y=None, epochs=2000, batch_size=None, shuffled=False) -> None:
         """
         拟合方法.
         :param X: 样本特征.
@@ -391,6 +390,8 @@ class VMOptimizerComparator:
             model = self.init_model(optimizer)
             models.append(model)
             plot_points(model.points, model.optimizer, annotate=self.annotate)  # 绘制参数迭代路径.
+            if hasattr(optimizer, 'slow_points'):
+                plot_points(optimizer.slow_points, optimizer, annotate=False)
         plt.figure(figsize=(10, 8))
         for model in models:
             plot_curve(model)
@@ -421,7 +422,7 @@ class LROptimizerComparator(VMOptimizerComparator):
 
     def init_model(self, optimizer):
         model = LinearRegression(in_features=1, out_features=1, criterion=self.criterion, optimizer=optimizer)
-        model.fit(self.X, self.y, epochs=2000, batch_size=5, shuffled=True)
+        model.fit(self.X, self.y, epochs=2000, batch_size=10, shuffled=False)
         return model
 
 
