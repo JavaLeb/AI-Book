@@ -147,13 +147,33 @@ class GDOptimizer(BaseOptimizer):
     """梯度下降法"""
 
 
+class SystemGD(torch.optim.Optimizer):
+    def __init__(self, params, lr=0.01):
+        defaults = dict(lr=lr)
+        super().__init__(params, defaults)
+        self.step_t = 0
+
+    def step(self, closure=None):
+        self.step_t += 1
+
+        # 通过调用闭包计算损失.
+        loss = None
+        if closure is not None:
+            with torch.enable_grad():
+                loss = closure()
+        # 参数更新.
+        for group in self.param_groups:
+            for params in group["params"]:
+                with torch.no_grad():
+                    params.data -= group['lr'] * params.grad  # 参数更新.
+
+        return loss
+
+
 class NewtonOptimizer(BaseOptimizer):
     """
     牛顿法.
     """
-
-    def __init__(self, params, lr=0.01, with_sgd=False):
-        super().__init__(params=params, lr=lr, with_sgd=with_sgd)
 
     def step(self):
         self.step_t += 1
@@ -180,6 +200,37 @@ class NewtonOptimizer(BaseOptimizer):
         # hessian_matrix += 1e-3 * np.eye(len(self.params))  # 正则化
 
         return hessian_matrix
+
+
+class BFGSOptimizer(BaseOptimizer):
+    def __init__(self, params, lr=0.1):
+        super().__init__(params, lr=lr)
+        self.eye = torch.eye(len(self.params))  # 单位矩阵.
+        self.hessian_inv = torch.eye(len(self.params))  # Hessian逆矩阵，对应算法中的B.
+        self.prev_grad = None  # 前一个梯度.
+
+    def step(self, closure=None):
+        self.step_t += 1
+        if closure is not None and self.step_t == 1:  # 只需要第一次计算.
+            loss = closure()
+            loss.backward()
+        grad = self.params.grad.clone()  # 梯度.
+        self.direction = -self.hessian_inv @ grad  # 搜索方向.
+        delta_params = self.adaptive_lr * self.direction  # 参数变化.
+        self.params.data += delta_params  # 参数更新.
+
+        if self.step_t > 1:
+            if closure is not None:  # 计算更新后的参数梯度.
+                loss = closure()
+                loss.backward()
+            delta_grad = self.params.grad - grad  # 梯度变化.
+            rou = 1 / delta_params.dot(delta_grad)  # 计算rou.
+            if rou > 0:
+                delta_params_view = delta_params.view(-1, 1)  # 列向量.
+                delta_grad_view = delta_grad.view(1, -1)  # 行向量.
+                left = self.eye - rou * delta_params_view @ delta_grad_view
+                self.hessian_inv = left @ self.hessian_inv @ left.t() + rou * delta_params_view @ delta_params_view.t()
+        self.prev_grad = grad.clone()
 
 
 class LBFGSOptimizer(BaseOptimizer):
@@ -405,7 +456,9 @@ class NAGOptimizer(FirstMomentumOptimizer):
         old_params_data = self.params.data.clone()  # 存储旧data的值.
         self.params.data = self.params.data - self.lr / self.momentum_two * self.momentum_one * self.m  # 下一步参数的值.
         # 计算下一步参数的梯度.
-        closure()
+        if closure is not None:
+            loss = closure()
+            loss.backward()
         self.update_m()
         self.params.data = old_params_data
         self.direction = self.m

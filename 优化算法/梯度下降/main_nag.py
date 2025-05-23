@@ -1,6 +1,6 @@
 import torch
-from common import VMOptimizerComparator, SystemOptimizer
-from optimizer import NAGOptimizer, NesterovOptimizer, MomentumOptimizer
+from common import VMOptimizerComparator
+from optimizer import NAGOptimizer, NesterovOptimizer, MomentumOptimizer, SystemOptimizer
 
 if __name__ == '__main__':
     lr = 0.01
