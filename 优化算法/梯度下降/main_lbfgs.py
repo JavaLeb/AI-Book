@@ -1,5 +1,5 @@
 import torch
-from optimizer import LBFGSOptimizer, SystemOptimizer, BFGSOptimizer,NewtonOptimizer
+from optimizer import LBFGSOptimizer, SystemOptimizer, BFGSOptimizer, NewtonOptimizer
 from common import VMOptimizerComparator
 from torch.optim import LBFGS
 

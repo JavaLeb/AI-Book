@@ -410,18 +410,19 @@ class LROptimizerComparator(VMOptimizerComparator):
     线性回归模型优化比较器.
     """
 
-    def __init__(self, optimizers: list):
+    def __init__(self, optimizers: list, batch_size=10):
         super().__init__(optimizers)
         self.X, self.y = generate_data()
         self.criterion = MSELoss()
         self.annotate = False
+        self.batch_size = batch_size
 
     def plot_contour(self):
         plot_contour_with_sample(self.X, self.y, r=11, n=400)  # 绘制等高线.
 
     def init_model(self, optimizer):
         model = LinearRegression(in_features=1, out_features=1, criterion=self.criterion, optimizer=optimizer)
-        model.fit(self.X, self.y, epochs=2000, batch_size=10, shuffled=False)
+        model.fit(self.X, self.y, epochs=2000, batch_size=self.batch_size, shuffled=False)
         return model
 
 

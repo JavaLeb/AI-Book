@@ -1,7 +1,7 @@
 import torch
 from common import LinearRegression
 from common import generate_data
-from optimizer import SAGOptimizer, SystemOptimizer
+from optimizer import SAGOptimizer
 from common import MSELoss
 
 if __name__ == '__main__':

@@ -141,6 +141,9 @@ class SystemOptimizer(BaseOptimizer):
         :return:
         """
         self.optimizer.step()  # 一步优化.
+        if isinstance(self.optimizer, torch.optim.ASGD):  # ASGD算法最终的值是平均值，存储在ax中.
+            state = self.optimizer.state
+            self.optimized_params = state[self.params]["ax"]
 
 
 class GDOptimizer(BaseOptimizer):
@@ -180,7 +183,7 @@ class NewtonOptimizer(BaseOptimizer):
         hessian_matrix = self.compute_hessian()  # 计算hessian矩阵.
         delta = np.linalg.solve(hessian_matrix, self.params.grad.data.numpy())  # H逆与梯度向量的乘积.
         self.direction = torch.from_numpy(delta).float()
-        super().update_params()
+        self.update_params()
 
     def compute_hessian(self):
         """
@@ -308,7 +311,7 @@ class ASGDOptimizer(BaseOptimizer):
     随机梯度下降法：实现与梯度下降相同，不同在于训练时，样本损失不同.
     """
 
-    def __init__(self, params, lr=0.01, t0=100):
+    def __init__(self, params, lr=0.01, t0=100, weight_decay=1e-4, alpha=0.75, ):
         """
 
         :param params:
@@ -316,23 +319,31 @@ class ASGDOptimizer(BaseOptimizer):
         :param gama: 正则化项系数.
         """
         super().__init__(params=params, lr=lr, with_sgd=True)
-        self.optimized_params = torch.zeros_like(params)
         self.t0 = t0
-        self.mu = 1.0
+        self.mu = 1
+        self.weight_decay = weight_decay
+        self.alpha = alpha
 
     def step(self):
         """
         :return:
+        torch.optim.ASGD实现的是从参数t0+2开始计算. 参数为t0+2,...,step_t,总元素个数为step_t-t0-1.
         """
-        self.step_t += 1
-        self.params.data -= self.adaptive_lr * self.params.grad  # update parameter
 
-        # averaging
-        if self.step_t - self.t0 > 1:  # t等价于算法中的t+1.  t0+1, t0+2, ... , t. 总个数t-t0.
-            self.mu = 1 / (self.step_t - self.t0)
+        # 动态学习率.
+        self.adaptive_lr = self.lr / ((1 + self.weight_decay * self.lr * self.step_t) ** self.alpha)
+        decay_data = (1 - self.weight_decay * self.adaptive_lr) * self.params.data  # 支持权重衰减.
+        self.params.data = decay_data - self.adaptive_lr * self.params.grad  # 参数更新.
+
+        # 当step_t=t0+2开始计算平均值. 参数为t0+1,...,step_t,总元素个数为step_t-t0.
+        self.step_t += 1
+        diff = self.step_t - self.t0
+        off = 1  # 将off改为2即与内置ASGD实现一致.
+        if diff > off:  # 从t0 + off开始计算平均值.
+            self.mu = 1 / (diff + 1 - off)  # 参与计算平均值参数个数:diff + 1.
             self.optimized_params = (1 - self.mu) * self.optimized_params + self.mu * self.params
-        else:
-            self.optimized_params = self.params
+        else:  # 在计算平均值之前，最终被赋值为step_t=t0的参数值.
+            self.optimized_params = self.params.clone()
 
 
 class SAGOptimizer(BaseOptimizer):
@@ -1102,29 +1113,32 @@ class LookaheadOptimizer(BaseOptimizer):
         loss = self.optimizer.step()  # 快权重更新.
 
         if self.version == 0:
-            if self.n == 0:
-                self._update()  # 慢参数更新.
-            self.n += 1
-            self.n %= self.p
+            self.step_version0()
         else:
-            if self.slow_param is None:
-                self.slow_param = self.optimizer.params.data.clone()
-                self.slow_points.append(self.slow_param.clone())
-            if self.step_t % self.p == 0:  # 慢权重更新.
-                self.slow_param += self.alpha * (self.optimizer.params.data - self.slow_param)
-                self.slow_points.append(self.slow_param.clone())  # 记录慢参数.
-                self.optimizer.params.data = self.slow_param  # 使用慢权重更新快权重.
+            self.step_version1()
 
         return loss
 
-    def _update(self) -> None:
-        if self.slow_param is None:  # 慢权重初始化.
-            self.slow_param = torch.clone(self.params.data).detach()
+    def step_version0(self) -> None:
+        if self.n == 0:
+            if self.slow_param is None:  # 慢权重初始化.
+                self.slow_param = torch.clone(self.params.data).detach()
+                self.slow_points.append(self.slow_param.clone())
+            fast = self.params
+            fast.data.mul_(self.alpha).add_(self.slow_param, alpha=1.0 - self.alpha)
+            self.slow_param.data.copy_(fast)
+            self.slow_points.append(self.slow_param.clone())  # 记录慢参数.
+        self.n += 1
+        self.n %= self.p
+
+    def step_version1(self):
+        if self.slow_param is None:
+            self.slow_param = self.optimizer.params.data.clone()
             self.slow_points.append(self.slow_param.clone())
-        fast = self.params
-        fast.data.mul_(self.alpha).add_(self.slow_param, alpha=1.0 - self.alpha)
-        self.slow_param.data.copy_(fast)
-        self.slow_points.append(self.slow_param.clone())  # 记录慢参数.
+        if self.step_t % self.p == 0:  # 慢权重更新.
+            self.slow_param += self.alpha * (self.optimizer.params.data - self.slow_param)
+            self.slow_points.append(self.slow_param.clone())  # 记录慢参数.
+            self.optimizer.params.data = self.slow_param  # 使用慢权重更新快权重.
 
 
 class LARSOptimizer(MomentumOptimizer):
