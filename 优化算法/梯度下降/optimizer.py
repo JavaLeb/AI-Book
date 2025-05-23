@@ -1188,7 +1188,7 @@ class SophiaHOptimizer(AdamOptimizer):
 
 
 class RpropOptimizer(BaseOptimizer):
-    def __init__(self, params, lr=0.1, eta_plus=1.2, eta_minus=0.5, delta_min=1e-6, delta_max=50):
+    def __init__(self, params, lr=0.1, eta_minus=0.5, eta_plus=1.2, delta_min=1e-6, delta_max=50):
         super().__init__(params, lr=lr)
         self.eta_plus = eta_plus
         self.eta_minus = eta_minus
@@ -1196,19 +1196,21 @@ class RpropOptimizer(BaseOptimizer):
         self.delta_max = delta_max
         self.pre_grad = torch.zeros_like(self.params)
         self.delta = torch.full_like(self.params, self.lr)
-        self.adaptive_lr = 1.0
 
     def step(self):
         self.step_t += 1
         grad = self.params.grad
         sign = grad.mul(self.pre_grad).sign()  # 计算当前时刻梯度与前一时刻梯度乘积符号.
-        self.pre_grad.copy_(grad)  # 当前梯度复制给前一时刻梯度.
-        # 根据梯度符号设置步长因子.
-        sign[sign.gt(0)] = self.eta_plus
-        sign[sign.lt(0)] = self.eta_minus
-        sign[sign.eq(0)] = 1.0
-        grad[sign.eq(self.eta_minus)] = 0  # 如果梯度方向改变，梯度置为0.  iRprop+.
 
-        self.delta.mul_(sign).clamp_(self.delta_min, self.delta_max)
-        self.direction = grad.sign() * self.delta
-        self.update_params()
+        # 根据梯度符号设置步长因子.
+        sign[sign.gt(0)] = self.eta_plus  # 符号大于0.
+        sign[sign.lt(0)] = self.eta_minus  # 符号小于0.
+        sign[sign.eq(0)] = 1.0  # 符号等于0.
+
+        grad_clone = grad.clone(memory_format=torch.preserve_format)
+        grad_clone[sign.eq(self.eta_minus)] = 0  # 如果梯度方向改变，梯度置为0.  iRprop+.
+
+        self.delta.mul_(sign).clamp_(self.delta_min, self.delta_max)  # 步长裁剪.
+        self.params.data.addcmul_(grad_clone.sign(), self.delta, value=-1)
+
+        self.pre_grad.copy_(grad_clone)  # 当前梯度复制给前一时刻梯度.

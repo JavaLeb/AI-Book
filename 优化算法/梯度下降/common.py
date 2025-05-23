@@ -166,21 +166,23 @@ class VirtualModel:
         退出条件.
         :return:
         """
-
+        grad_stop = False
         if self.params.grad is not None:  # 梯度接近于0.
             grad_stop = self.params.grad.abs().max() < self.optimizer.tol_grad
-            if grad_stop:
-                return True
+            # if grad_stop:
+            #     return True
+        data_change_stop = False
         if len(self.points) > 1:  # 参数更新接近于0.
             data_change_stop = torch.abs(self.points[-1] - self.points[-2]).max() < self.optimizer.tol
-            if data_change_stop:
-                return True
+            # if data_change_stop:
+            #     return True
+        loss_change_stop = False
         if len(self.loss_history) > 1:  # 损失变化接近于0.
             loss_change = self.loss_history[-1] - self.loss_history[-2]
             loss_change_stop = abs(loss_change) < self.optimizer.tol
-            return loss_change_stop
+            # return loss_change_stop
 
-        return False
+        return grad_stop and data_change_stop and loss_change_stop
 
 
 class LinearRegression(VirtualModel):
