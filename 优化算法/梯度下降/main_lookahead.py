@@ -11,12 +11,12 @@ if __name__ == '__main__':
     lookahead = Lookahead(optimizer=sgd, k=5, alpha=0.1)  # 内置lookahead.
     system_optimizer = SystemOptimizer(lookahead)
 
-    # 自定义实现lookahead, version=1.
+    # 自定义实现lookahead, version=0.
     initial_param2 = torch.tensor([10.0, 10.0], requires_grad=True)
     lookahead_optimizer_0 = LookaheadOptimizer(optimizer=GDOptimizer(params=initial_param2, lr=lr), p=5,
                                                alpha=0.1, version=0)  # 自定义lookahead.
 
-    # 自定义实现lookahead, version=0.
+    # 自定义实现lookahead, version=1.
     initial_param3 = torch.tensor([-10.0, -10.0], requires_grad=True)
     lookahead_optimizer_1 = LookaheadOptimizer(optimizer=GDOptimizer(params=initial_param3, lr=lr), p=5,
                                                alpha=0.1, version=1)  # 自定义lookahead.

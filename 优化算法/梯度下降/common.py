@@ -389,8 +389,6 @@ class VMOptimizerComparator:
             model = self.init_model(optimizer)
             models.append(model)
             plot_points(model.points, model.optimizer, annotate=self.annotate)  # 绘制参数迭代路径.
-            if hasattr(optimizer, 'slow_points'):
-                plot_points(optimizer.slow_points, optimizer, annotate=False)
         plt.figure(figsize=(10, 8))
         for model in models:
             plot_curve(model)

@@ -1099,11 +1099,17 @@ class LookaheadOptimizer(BaseOptimizer):
     """
 
     def __init__(self, optimizer: BaseOptimizer, p: int = 5, alpha: float = 0.5, version=0):
+        """
+
+        :param optimizer: 内部优化器.
+        :param p: 同步周期.
+        :param alpha:
+        :param version: 实现版本.
+        """
         super().__init__(params=optimizer.params, lr=optimizer.lr)
         self.optimizer = optimizer  # 内部优化器.
         self.p = p
         self.alpha = alpha
-        self.slow_points = []
         self.slow_param = None
         self.n = 0
         self.version = version
@@ -1123,21 +1129,17 @@ class LookaheadOptimizer(BaseOptimizer):
         if self.n == 0:
             if self.slow_param is None:  # 慢权重初始化.
                 self.slow_param = torch.clone(self.params.data).detach()
-                self.slow_points.append(self.slow_param.clone())
             fast = self.params
             fast.data.mul_(self.alpha).add_(self.slow_param, alpha=1.0 - self.alpha)
             self.slow_param.data.copy_(fast)
-            self.slow_points.append(self.slow_param.clone())  # 记录慢参数.
         self.n += 1
         self.n %= self.p
 
     def step_version1(self):
         if self.slow_param is None:
             self.slow_param = self.optimizer.params.data.clone()
-            self.slow_points.append(self.slow_param.clone())
         if self.step_t % self.p == 0:  # 慢权重更新.
             self.slow_param += self.alpha * (self.optimizer.params.data - self.slow_param)
-            self.slow_points.append(self.slow_param.clone())  # 记录慢参数.
             self.optimizer.params.data = self.slow_param  # 使用慢权重更新快权重.
 
 
