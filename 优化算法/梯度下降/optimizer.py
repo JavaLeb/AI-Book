@@ -1103,44 +1103,53 @@ class LookaheadOptimizer(BaseOptimizer):
 
         :param optimizer: 内部优化器.
         :param p: 同步周期.
-        :param alpha:
+        :param alpha: 慢权重更新步长.
         :param version: 实现版本.
         """
         super().__init__(params=optimizer.params, lr=optimizer.lr)
         self.optimizer = optimizer  # 内部优化器.
         self.p = p
         self.alpha = alpha
-        self.slow_param = None
-        self.n = 0
+        self.slow_params = None  # 慢权重.
         self.version = version
+        self.fast_n = 0
+        self.reset_fast = False
 
     def step(self):
-        self.step_t += 1
-        loss = self.optimizer.step()  # 快权重更新.
 
         if self.version == 0:
             self.step_version0()
         else:
             self.step_version1()
 
-        return loss
-
     def step_version0(self) -> None:
-        if self.n == 0:
-            if self.slow_param is None:  # 慢权重初始化.
-                self.slow_param = torch.clone(self.params.data).detach()
-            fast = self.params
-            fast.data.mul_(self.alpha).add_(self.slow_param, alpha=1.0 - self.alpha)
-            self.slow_param.data.copy_(fast)
-        self.n += 1
-        self.n %= self.p
+        self.step_t += 1
+        self.optimizer.step()  # 快权重更新.
+        if self.slow_params is None:  # 慢权重初始化.
+            self.slow_params = torch.clone(self.params.data).detach()
+        self.fast_n += 1
+        if self.fast_n == 1:
+            self.slow_params = self.alpha * self.params + (1 - self.alpha) * self.slow_params  # 更新慢权重.
+            self.params.data = self.slow_params.clone()  # 重置快权重.
+        self.fast_n %= self.p
 
     def step_version1(self):
-        if self.slow_param is None:
-            self.slow_param = self.optimizer.params.data.clone()
-        if self.step_t % self.p == 0:  # 慢权重更新.
-            self.slow_param += self.alpha * (self.optimizer.params.data - self.slow_param)
-            self.optimizer.params.data = self.slow_param  # 使用慢权重更新快权重.
+        """
+        按照论文实现.
+        :return:
+        """
+        self.step_t += 1
+        if self.slow_params is None:  # 慢权重初始化.
+            self.slow_params = self.optimizer.params.clone()
+        if self.reset_fast:  # 使用慢权重更新快权重.
+            self.params.data = self.slow_params
+            self.reset_fast = False
+        self.optimizer.step()  # 快权重更新.
+        self.fast_n += 1
+        if self.fast_n == self.p:  # 慢权重更新.
+            self.slow_params += self.alpha * (self.optimizer.params.data - self.slow_params)
+            self.reset_fast = True
+        self.fast_n %= self.p
 
 
 class LARSOptimizer(MomentumOptimizer):
