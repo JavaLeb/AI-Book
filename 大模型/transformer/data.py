@@ -46,9 +46,9 @@ class Corpus(object):
         :param path: 语料路径（数据集的目录）.
         """
         self.dictionary = Dictionary()  # 初始化字典.
-        self.train = self.tokenize(os.path.join(path, 'train.txt'))  # 训练集分词.
-        self.valid = self.tokenize(os.path.join(path, 'valid.txt'))  # 验证集分词.
-        self.test = self.tokenize(os.path.join(path, 'test.txt'))  # 测试集分词.
+        self.train = self.tokenize(os.path.join(path, 'example.txt'))  # 训练集分词.
+        self.valid = self.tokenize(os.path.join(path, 'example.txt'))  # 验证集分词.
+        self.test = self.tokenize(os.path.join(path, 'example.txt'))  # 测试集分词.
 
     def tokenize(self, path):
         """
@@ -82,7 +82,7 @@ class Corpus(object):
 
 def batchify(raw_data, bsz, device='cpu'):
     """
-    数据分批.
+    数据分批: 将原始数据不重叠地分成bsz个批, 每批序列长度 = 原始数据序列总长度 // 批次大小, 多余会被抛弃.
     如果对26个字母构成的序列进行分批，批次大小为4, 如果丢弃最后两个字母，则可分成6个批次. 整个过程如下：
     (1) 原始序列
             raw_data = [a,b,...,x,y,z].
@@ -107,12 +107,12 @@ def batchify(raw_data, bsz, device='cpu'):
     :param bsz: 批大小.
     :return: 分批后的数据，形状为(每批序列长度，批次大小).
     """
-    # 数据大小整除批大小, //表示整除, 例如: 7//3=2.
-    seq_len = raw_data.size(0) // bsz
-    # 沿着数据张量的第0维从start开始截取，截取的word个数为nbatch * bsz.
-    data = raw_data.narrow(dim=0, start=0, length=seq_len * bsz)
+    # 批次数 = 数据大小 整除 批大小, //表示整除, 例如: 7//3=2.
+    n_batch = raw_data.size(0) // bsz
+    # 沿着数据张量的第0维从start开始截取，截取的word个数为n_batch * bsz, 抛弃不能整除的word.
+    data = raw_data.narrow(dim=0, start=0, length=n_batch * bsz)
     data = data.view(bsz, -1)  # 形状(批大小，批次数）.
-    data = data.t().contiguous()  # 转置. 形状(批次数，批大小).
+    # data = data.t().contiguous()  # 转置. 形状(批次数，批大小).
 
     return data.to(device)
 
@@ -121,14 +121,14 @@ def get_batch(source, i, seq_len):
     """
     获取批次数据.
 
-    :param source: 源数据.
+    :param source: 源数据, shape(batch_size,seq_total_len).
     :param i: 批次号.
     :param seq_len: 序列长度.
     :return:
     """
     # 如果source长度100, seq_len=35, 则source分为三个序列，长度分别为35,35,30.
-    seq_len = min(seq_len, len(source) - 1 - i)
-    src_data = source[i:i + seq_len]  # 源序列
-    target_data = source[i + 1:i + 1 + seq_len]  # 目标序列, 与源序列相同形状.
+    seq_len = min(seq_len, source.size(1) - 1 - i)
+    src_data = source[:, i:i + seq_len]  # 源序列
+    target_data = source[:, i + 1:i + 1 + seq_len]  # 目标序列, 与源序列相同形状.
 
     return src_data, target_data

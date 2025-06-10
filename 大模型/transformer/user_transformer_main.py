@@ -3,7 +3,7 @@ import torch
 import math
 from data import Corpus, get_batch, batchify
 import time
-from user_transformer import Transformer
+from user_transformer import UserTransformer
 
 
 class Config:
@@ -15,16 +15,16 @@ class Config:
         self.device = 'cuda'  # 设备, 默认cuda, 可以设置为cpu.
         self.dtype = torch.float
 
-        self.batch_size = 20  # 批大小.
+        self.batch_size = 2  # 批大小.
         self.eval_batch_size = 10  # 评估时的批次大小.
-        self.d_model = 256
+        self.d_model = 2
         self.embedding_dim = self.d_model  # 词嵌入向量大小.
         self.nhead = 2  # 头数量.
-        self.dim_feedforward = 128  # 隐藏层神经元个数.
+        self.dim_feedforward = 2  # 隐藏层神经元个数.
         self.num_encoder_layers = 2  # encoder层数.
         self.num_decoder_layers = 2  # encoder层数.
         self.dropout_p = 0.1  # dropout概率
-        self.seq_len = 35  # 序列长度.
+        self.seq_len = 3  # 序列长度.
         self.clip = 0.25  # 梯度裁剪.
         self.log_interval = 200
         self.save = 'model.pt'  # 保存模型文件.
@@ -56,14 +56,9 @@ def train_epoch(epoch, criterion):
     start_time = time.time()  # 开始时间.
     for batch, i in enumerate(range(0, train_data.size(0) - 1, config.seq_len)):
         src_data, target_data = get_batch(train_data, i, config.seq_len)
-
-        src_data = torch.transpose(src_data, 0, 1)  # 将batch_size作为0维度.
-        target_data = torch.transpose(target_data, 0, 1)
-
         targets = target_data.reshape(-1)
-
         model.zero_grad()  # 梯度清零.
-        output = model(src_data.clone(), target_data.clone())  # 计算输出 shape(batch_size,seq_len,voc_size).
+        output = model(src_data, target_data)  # 计算输出 shape(batch_size,seq_len,voc_size).
         output = output.view(-1, n_tokens)  # shape(batch_size * seq_len, voc_size).
         output = torch.softmax(output, dim=-1)
         output = torch.argmax(output, dim=-1)
@@ -126,7 +121,7 @@ if __name__ == '__main__':
 
     n_tokens = corpus.get_dic_token_num()  # 获取字典token数量.
     # 初始化Transformer模型.
-    model = Transformer(num_embeddings=n_tokens, embedding_dim=config.embedding_dim, num_heads=config.nhead,
+    model = UserTransformer(num_embeddings=n_tokens, embedding_dim=config.embedding_dim, num_heads=config.nhead,
                         feedforward_dim=config.dim_feedforward, num_encoder_layers=config.num_encoder_layers,
                         num_decoder_layers=config.num_decoder_layers, dropout_p=config.dropout_p).to(
         device=config.device, dtype=config.dtype)
