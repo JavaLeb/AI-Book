@@ -1,6 +1,12 @@
+import itertools
 import os
 from io import open
 import torch
+import jieba
+import nltk
+from torch.utils.data import Dataset, DataLoader, random_split
+from torch import nn
+from config import PytorchTransConfig as Config
 
 
 class Dictionary(object):
@@ -8,31 +14,46 @@ class Dictionary(object):
     字典.
     """
 
-    def __init__(self):
+    def __init__(self, pad_token='<pad>', bos_token='<bos>',
+                 eos_token='<eos>', unknown_token='<unk>', reserved_tokens: list = None):
         """
         初始化方法.
         """
-        self.word2idx = {}  # 根据word找id.
-        self.idx2word = []  # 根据id找word, 它其实构成了字典.
+        self.token2idx = {}  # 根据word找id.
+        self.idx2token = []  # 根据id找word, 它其实构成了字典.
+        self.bos_token = bos_token
+        self.eos_token = eos_token
+        self.key_tokens = [pad_token, bos_token, eos_token, unknown_token]
+        self.add_tokens(self.key_tokens)
+        self.pad_id, self.bos_id, self.eos_id, self.unk_id = self._get_key_ids(self.key_tokens)
+        if reserved_tokens:
+            self.add_tokens(reserved_tokens)  # 将保留词元加入词典.
 
-    def add_word(self, word):
+    def add_token(self, token):
         """
         将word加入词典中.
-        :param word: 待加入词典中的word.
+        :param token: 待加入词典中的word.
         :return: 返回word在词典的id.
         """
-        if word not in self.word2idx:  # 如果词不在字典中, 则加入.
-            self.idx2word.append(word)  # 将word放入列表中, 列表的索引就是word的id.
-            self.word2idx[word] = len(self.idx2word) - 1  # 建立word到id的映射.
+        if token not in self.token2idx:  # 如果词不在字典中, 则加入.
+            self.idx2token.append(token)  # 将word放入列表中, 列表的索引就是word的id.
+            self.token2idx[token] = len(self.idx2token) - 1  # 建立word到id的映射.
 
-        return self.word2idx[word]
+        return self.token2idx[token]
+
+    def add_tokens(self, tokens):
+        for token in tokens:
+            self.add_token(token)
+
+    def _get_key_ids(self, key_tokens):
+        return [self.token2idx[token] for token in key_tokens]
 
     def __len__(self):
         """
         字典大小.
         :return: 字典大小.
         """
-        return len(self.idx2word)
+        return len(self.idx2token)
 
 
 class Corpus(object):
@@ -40,95 +61,116 @@ class Corpus(object):
     语料.
     """
 
-    def __init__(self, path):
+    def __init__(self, path, num_line: int = -1, device='cpu'):
         """
         初始化方法.
         :param path: 语料路径（数据集的目录）.
         """
-        self.dictionary = Dictionary()  # 初始化字典.
-        self.train = self.tokenize(os.path.join(path, 'example.txt'))  # 训练集分词.
-        self.valid = self.tokenize(os.path.join(path, 'example.txt'))  # 验证集分词.
-        self.test = self.tokenize(os.path.join(path, 'example.txt'))  # 测试集分词.
 
-    def tokenize(self, path):
+        self.dictionary = Dictionary()  # 初始化字典.
+        self.num_line = num_line
+        self.src_max_seq_len = -1
+        self.tgt_max_seq_len = -1
+        self.device = device
+        self.data_path = path
+        self.data_set = self.tokenize()
+
+    def tokenize(self):
         """
         分词.
-        :param path: 语料路径.
         :return:
         """
-        assert os.path.exists(path)  # 断言语料路径是否存在.
-        # 将word加入字典中.
-        with open(path, 'r', encoding="utf8") as f:  # 打开文件.
-            idss = []  # 序列的列表. 每个元素表示一个序列.
-            for line in f:  # 逐行遍历.
-                # 将一行按照空白字符（包括\n \r \t \f 和 空格）切分. 这里将一行看做一个序列, <eos>标记一个序列结束.
-                words = line.split() + ['<eos>']
-                ids = []  # 一个序列的id列表.
-                for word in words:
-                    self.dictionary.add_word(word)  # 将word逐个加入字典中.
-                    ids.append(self.dictionary.word2idx[word])
-                idss.append(torch.tensor(ids).type(torch.int64))  # 一个序列的id转换成一个张量.
-            ids = torch.cat(idss)  # 将一个张量列表连接为一个张量.
+        assert os.path.exists(self.data_path)  # 断言语料路径是否存在.
+        with open(self.data_path, 'r', encoding="utf8") as f:  # 打开文件.
+            if self.num_line > 0:
+                lines = []
+                i = 0
+                while i < self.num_line:
+                    lines.append(f.readline().rstrip('\n'))
+                    i += 1
+            else:
+                text = f.read()
+                lines = text.split('\n')
 
-        return ids
+        data_set = []
+        bos_token = self.dictionary.bos_token
+        eos_token = self.dictionary.eos_token
+        for line in lines:
+            if len(line) == 0:  # 排除空白行.
+                continue
+            part = line.split('\t')  # 按照tab切分.
+            src_sent, tgt_sent = part[0], part[1]  # 源句子和目标句子.
+            src_tokens = nltk.word_tokenize(src_sent) + [eos_token]  # 英文分词.
+            tgt_tokens = [bos_token] + jieba.lcut(tgt_sent) + [eos_token]  # 中文分词.
+            if len(src_tokens) > self.src_max_seq_len:
+                self.src_max_seq_len = len(src_tokens)
+            if len(tgt_tokens) > self.tgt_max_seq_len:
+                self.tgt_max_seq_len = len(tgt_tokens)
+            src_ids = self._tokens2ids(src_tokens)  # token数字化.
+            tgt_ids = self._tokens2ids(tgt_tokens)  # token数字化.
+            data_set.append((src_ids, tgt_ids))
 
-    def get_dic_token_num(self):
+        result_data = []
+        for (src_ids, tgt_ids) in data_set:
+            src_ids = nn.functional.pad(src_ids, (0, self.src_max_seq_len - len(src_ids)),
+                                        value=self.dictionary.pad_id)
+            tgt_ids = nn.functional.pad(tgt_ids, (0, self.tgt_max_seq_len - len(tgt_ids)),
+                                        value=self.dictionary.pad_id)
+            result_data.append((src_ids, tgt_ids))
+
+        return result_data
+
+    def _tokens2ids(self, tokens):
+        ids = []  # 一个序列的id列表.
+        for token in tokens:
+            self.dictionary.add_token(token)
+            ids.append(self.dictionary.token2idx[token])
+        return torch.tensor(ids, dtype=torch.int64, device=self.device)
+
+    def ids2tokens(self, token_ids):
+        tokens = []
+        for token_id in token_ids:
+            token = self.dictionary.idx2token[token_id]
+            tokens.append(token)
+        return tokens
+
+    def get_dic_size(self):
         """
         返回字典的token数量.
         :return:
         """
         return len(self.dictionary)
 
-
-def batchify(raw_data, bsz, device='cpu'):
-    """
-    数据分批: 将原始数据不重叠地分成bsz个批, 每批序列长度 = 原始数据序列总长度 // 批次大小, 多余会被抛弃.
-    如果对26个字母构成的序列进行分批，批次大小为4, 如果丢弃最后两个字母，则可分成6个批次. 整个过程如下：
-    (1) 原始序列
-            raw_data = [a,b,...,x,y,z].
-    (2) narrow操作
-            data = [a,b,...,x].
-    (3) view操作
-            data = [[a,b,c,d,e,f]
-                    [g,h,i,j,k,l]
-                    [m,n,o,p,q,r]
-                    [s,t,u,v,w,x]]
-        形状为(批次大小，每批序列长度)=(4,6).
-    (4) t()转置
-            ┌ a g m s ┐
-            │ b h n t │
-            │ c i o u │
-            │ d j p v │
-            │ e k q w │
-            └ f l r x ┘.
-        形状为(每批序列长度，批次大小)=(6,4).
-    :param device: cpu或cuda.
-    :param raw_data: 数据序列.
-    :param bsz: 批大小.
-    :return: 分批后的数据，形状为(每批序列长度，批次大小).
-    """
-    # 批次数 = 数据大小 整除 批大小, //表示整除, 例如: 7//3=2.
-    n_batch = raw_data.size(0) // bsz
-    # 沿着数据张量的第0维从start开始截取，截取的word个数为n_batch * bsz, 抛弃不能整除的word.
-    data = raw_data.narrow(dim=0, start=0, length=n_batch * bsz)
-    data = data.view(bsz, -1)  # 形状(批大小，批次数）.
-    # data = data.t().contiguous()  # 转置. 形状(批次数，批大小).
-
-    return data.to(device)
+    def get_max_seq_len(self):
+        return max(self.src_max_seq_len, self.tgt_max_seq_len)
 
 
-def get_batch(source, i, seq_len):
-    """
-    获取批次数据.
+class DataSetProcessor:
+    def __init__(self, data_set):
+        self.val_dataset = None
+        self.train_dataset = None
+        self.data_set = data_set
 
-    :param source: 源数据, shape(batch_size,seq_total_len).
-    :param i: 批次号.
-    :param seq_len: 序列长度.
-    :return:
-    """
-    # 如果source长度100, seq_len=35, 则source分为三个序列，长度分别为35,35,30.
-    seq_len = min(seq_len, source.size(1) - 1 - i)
-    src_data = source[:, i:i + seq_len]  # 源序列
-    target_data = source[:, i + 1:i + 1 + seq_len]  # 目标序列, 与源序列相同形状.
+    def split(self, train_size=0.8):
+        train_size = int(train_size * len(self.data_set))
+        val_size = len(self.data_set) - train_size
+        self.train_dataset, self.val_dataset = random_split(self.data_set, [train_size, val_size])
 
-    return src_data, target_data
+        return self.train_dataset, self.val_dataset
+
+    def batchify(self, batch_size=10, shuffle=True):
+        train_loader = DataLoader(self.train_dataset, batch_size=batch_size, shuffle=shuffle)
+        val_loader = DataLoader(self.val_dataset, batch_size=batch_size, shuffle=shuffle)
+
+        return train_loader, val_loader
+
+
+if __name__ == '__main__':
+    torch.manual_seed(42)
+    corpus = Corpus(Config.data_path, device=Config.device)
+    vocab_size = corpus.get_dic_size()
+    max_seq_len = corpus.get_max_seq_len()
+    dataset_processor = DataSetProcessor(corpus.data_set)
+    train_dataset, val_dataset = dataset_processor.split(train_size=0.8)
+    train_loader, val_loader = dataset_processor.batchify(batch_size=Config.batch_size)
+    print()
