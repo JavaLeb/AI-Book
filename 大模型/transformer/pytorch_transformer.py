@@ -155,17 +155,16 @@ def evaluate(model, val_loader, loss_fn, pad_id):
 
 
 # 预测函数 (贪婪解码)
-def greedy_decode(model, src: Tensor, src_padding_mask: Tensor, corpus):
+def greedy_decode(model, src: Tensor, src_padding_mask: Tensor, dictionary):
     model.eval()
     device = Config.device
-    dictionary = corpus.dictionary
     # 编码器输出
     memory = model.encode(src, src_padding_mask)
     # 初始化解码器输入 (起始符号) <bos>.
     ys = torch.ones(src.size(0), 1).fill_(dictionary.bos_id).type_as(src).to(device)
     eos_flags = torch.zeros(ys.size(0), dtype=torch.bool).to(device)  # 终止标志
 
-    for i in range(corpus.get_max_seq_len() - 1):
+    for i in range(Config.max_seq_len - 1):
         tgt_mask = create_attention_mask(ys).type_as(src_padding_mask).to(device)
         tgt_padding_mask = (ys == dictionary.pad_id)
         # 解码器输出
@@ -194,33 +193,35 @@ if __name__ == '__main__':
     torch.manual_seed(42)
 
     # 数据处理.
-    corpus = Corpus(Config.data_path, device=Config.device, num_line=Config.num_line)
-    dictionary = corpus.dictionary
-    vocab_size = corpus.get_dic_size()
-    max_seq_len = corpus.get_max_seq_len()
+    corpus = Corpus(Config.data_path, device=Config.device,
+                    num_line=Config.num_line, max_seq_len=Config.max_seq_len)
     dataset_processor = DataSetProcessor(corpus.data_set)
     train_dataset, val_dataset = dataset_processor.split(Config.train_size)
     train_loader, val_loader = dataset_processor.batchify(Config.batch_size)
 
     # 定义模型.
+    vocab_size = corpus.dictionary.size()
     model = PytorchTransformer(src_vocab_size=vocab_size, tgt_vocab_size=vocab_size,
                                embedding_dim=Config.embedding_dim, dropout_p=Config.dropout_p,
-                               max_seq_len=max_seq_len, num_head=Config.num_head,
+                               max_seq_len=Config.max_seq_len, num_head=Config.num_head,
                                num_encoder_layers=Config.num_encoder_layers,
                                number_decoder_layers=Config.num_decoder_layers,
                                dim_feedforward=Config.dim_feedforward).to(Config.device)
     # 损失函数（忽略填充位置的损失）, 内部已经实现了softmax.
-    loss_fn = nn.CrossEntropyLoss(ignore_index=dictionary.pad_id)
+    pad_id = corpus.dictionary.pad_id
+    loss_fn = nn.CrossEntropyLoss(ignore_index=pad_id)
     # 优化器.
-    optimizer = torch.optim.Adam(model.parameters(), lr=Config.lr, betas=(0.9, 0.98), eps=1e-9)
+    optimizer = torch.optim.Adam(
+        model.parameters(), lr=Config.lr,
+        betas=Config.optimizer_betas, eps=Config.optimizer_eps)
 
     # 训练循环
     best_val_loss = float('inf')
     best_model_name = 'best_translation_model.pt'
     for epoch in range(Config.epochs):
         # 每个样本的平均损失.
-        train_loss = train_epoch(epoch, model, train_loader, optimizer, loss_fn, pad_id=dictionary.pad_id)
-        val_loss = evaluate(model, val_loader, loss_fn, pad_id=dictionary.pad_id)
+        train_loss = train_epoch(epoch, model, train_loader, optimizer, loss_fn, pad_id=pad_id)
+        val_loss = evaluate(model, val_loader, loss_fn, pad_id=pad_id)
         print(f'Epoch [{epoch + 1}/{Config.epochs}] | Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f}')
         # 保存最佳模型
         if val_loss < best_val_loss:
@@ -241,17 +242,16 @@ if __name__ == '__main__':
 
     # 获取一个测试样本
     src, tgt = train_loader.dataset[0]
-    src = src.reshape(1, -1)
-    tgt = tgt.reshape(1, -1)
+    src, tgt = src.reshape(1, -1), tgt.reshape(1, -1)
     src_ids = src.cpu().numpy().tolist()
-    src_tokens = corpus.ids2tokens(src_ids[0])
-    tgt_tokens = corpus.ids2tokens(tgt[0])
+    src_tokens = corpus.dictionary.ids2tokens(src_ids[0])
+    tgt_tokens = corpus.dictionary.ids2tokens(tgt[0])
     # 生成源序列填充掩码.
-    src_padding_mask = create_key_padding_mask(src, dictionary.pad_id)
+    src_padding_mask = create_key_padding_mask(src, pad_id)
     # 进行预测
-    output = greedy_decode(model, src, src_padding_mask, corpus)
+    output = greedy_decode(model, src, src_padding_mask, corpus.dictionary)
     output_ids = output.cpu().numpy().tolist()
-    output_tokens = corpus.ids2tokens(output_ids[0])
+    output_tokens = corpus.dictionary.ids2tokens(output_ids[0])
     print(f"输入源序列: {src_tokens})")
     print(f'目标序列: {tgt_tokens}')
     print(f"预测序列: {output_tokens}")
