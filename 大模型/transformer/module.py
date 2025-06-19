@@ -4,115 +4,139 @@ import math
 from torch import Tensor
 
 
-class Mask:
+class Masker:
+    """
+    掩码器.
+    """
+
     def __init__(self, padding_id, device=None):
-        self.neg_inf = float('-inf')
+        self.neg_inf = float('-inf')  # 负无穷大.
         self.padding_id = padding_id
         self.device = device
 
     def create_attention_mask(self, inputs: Tensor) -> Tensor:
         """
         创建注意力掩码.
-        :param inputs: shape(batch_dim,seq_dim,feature_dim)
-        :return:
+        例如：如果inputs的shape(2,3), 返回(3,3)矩阵
+                [[0, -inf, -inf],
+                 [0, 0,    -inf],
+                 [0, 0,    0]]
+
+        :param inputs: shape(batch_dim,seq_dim).
+        :return: 倒三角: shape(seq_dim,seq_dim).
         """
         seq_len = inputs.shape[1]
         full_neg_inf = torch.full((seq_len, seq_len), self.neg_inf)
 
         return torch.triu(full_neg_inf, diagonal=1).to(self.device)
 
-    def create_key_padding_mask(self, seq_inputs: Tensor):
+    def create_key_padding_mask(self, inputs: Tensor):
         """
         创建键填充掩码.
-        :param seq_inputs:
-        :param pad_id:
-        :return:
+        例如: inputs=[[1,4,0],[5,0,0]], pad_id=0, 则返回掩码如下:
+        [[0, 0,    -inf],
+         [0, -inf, -inf]].
+
+        :param inputs: 输入序列 shape=(batch_dim, seq_dim).
+        :return: 键填充掩码: shape=(batch_dim, seq_dim).
         """
 
-        key_padding_mask = (seq_inputs == self.padding_id)  # 布尔型掩码.
+        key_padding_mask = (inputs == self.padding_id)  # 布尔型掩码.
         tmp = torch.zeros_like(key_padding_mask, dtype=torch.float)
         key_padding_mask = tmp.masked_fill(key_padding_mask, self.neg_inf)  # 浮点型掩码.
 
         return key_padding_mask.to(self.device)
 
 
-class Embedding(nn.Module):
+class Dropout(nn.Module):
     """
-    嵌入层 (直接封装内置实现).
+    封装内置Dropout: 方便训练模型与非训练模式切换.
     """
 
-    def __init__(self, num_embeddings, embedding_dim):
+    def __init__(self, p):
+        super().__init__()
+        self.dropout = nn.Dropout(p=p)
+
+    def forward(self, X):
+        """
+            以某个概率将X的元素x的值变为0, 保留的值乘以1/p, 保持输出的值的期望不变.
+            对于某个元素x, E[output] = p * 0 + (1-p) * (1/(1-p)) * x = x.
+        :param X:
+        :return:
+        """
+        if self.training:  # 训练模型.
+            X = self.dropout(X)
+
+        return X
+
+
+class Embedding(nn.Module):
+    """
+    嵌入层: 封装内置实现.
+    """
+
+    def __init__(self, num_embeddings: int, embedding_dim: int = 512):
         """
         初始化方法.
-        embedding矩阵的第i(i=0,...)行表示索引为i的token的词嵌入.
+        embedding矩阵的第i(i=0,...)行表示索引为i的token的嵌入向量.
         :param num_embeddings: embedding的token数量.
         :param embedding_dim: embedding维度.
         """
         super().__init__()
-        self.embedding_dim = embedding_dim
         self.embedding = nn.Embedding(num_embeddings, embedding_dim)
 
     def forward(self, X):
         """
         根据索引查找词嵌入.
-        :param X:  X的值表示token的索引, shape=(batch_size, seq_len).
+        :param X:  X的每个元素表示token的索引, shape=(batch_dim, seq_dim).
         :return:
         """
         return self.embedding(X)
 
 
 class PositionalEncoding(nn.Module):
-    r"""位置编码层，获取序列中token之间的相对或绝对位置信息.
+    """位置编码层，获取序列中token之间的相对或绝对位置信息.
         位置编码向量与embedding向量维度相同, 因此它们可以求和.
         使用不同频率的sine和cosine函数.
     """
 
-    def __init__(self, embedding_dim, dropout_p=0.1, max_len=5000):
+    def __init__(self, embedding_dim=512, dropout_p=0.1, max_seq_len=5000):
         """
-        位置编码层.
         假设embedding_dim=n,一个位置pos对应一个位置向量p_pos=(sin(w0*pos),cos(w1*pos),...,sin(wn-2*pos),cos(wn-1*pos)).
         w_2i+1=w_2i.
 
         :param embedding_dim: embedding向量的维度大小.
-        :param dropout_p: dropout值，默认0.1.
-        :param max_len: 输入序列最大长度.
+        :param dropout_p: dropout概率, 默认0.1.
+        :param max_seq_len: 输入序列最大长度.
         """
         super().__init__()
-        self.dropout = nn.Dropout(p=dropout_p)  # 初始化Dropout.
-        # pe: shape=(pos,embedding_dim), max_len用于生产足够长的位置向量.
-        pe = torch.zeros(max_len, embedding_dim)
+        self.dropout = Dropout(dropout_p)  # 初始化Dropout.
+        # pe: shape=(pos_dim,embedding_dim).
+        pe = torch.zeros(max_seq_len, embedding_dim)
         # unsqueeze在指定维度插入长度为1的新维度,例如shape=(3,)，当dim=1，则变为shape=(3,1).
-        # position: shape=(pos,1).
-        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(dim=1)  # 生成足够长的位置pos.
+        # position: shape=(pos_dim,1).
+        position = torch.arange(0, max_seq_len, dtype=torch.float).unsqueeze(dim=1)  # 生成足够长的位置pos.
         # 相当于公式中的w_2i, 使用exp避免精度丢失, shape=(embedding_dim/2,).
         w_2i = torch.exp(torch.arange(0, embedding_dim, 2).float() * (-math.log(10000.0) / embedding_dim))
 
         pe[:, 0::2] = torch.sin(w_2i * position)  # 所有pos的位置向量的偶数位置使用正弦函数.
         pe[:, 1::2] = torch.cos(w_2i * position)  # 所有pos的位置向量奇数位置使用余弦函数.
-        # 初始pe的形状(pos,embedding_dim), 然后在dim=0插入批次维度变为(1,pos,embedding_dim).
+        # 初始pe的形状(pos_dim,embedding_dim), 然后在dim=0插入批次维度变为(1,pos_dim,embedding_dim).
         pe = pe.unsqueeze(dim=0)
-        # 注册, 调用to()方法时, 可迁移计算device.
-        self.register_buffer('pe', pe)
+        self.register_buffer('pe', pe)  # 注册, 调用to()方法时, 可迁移计算device.
 
     def forward(self, X):
         r"""
         输出使用dropout.
-        :param X: 输入 [batch_size, seq_len, embedding_dim].
-        形状:
-            输入: [batch_size, seq_len, embedding_dim]
-            输出: [batch_size, seq_len, embedding_dim]
+
+        :param X: 输入, shape=(batch_dim, seq_dim, embedding_dim).
+        :return 输出, shape=(batch_dim, seq_dim, embedding_dim).
         """
-        # X.size(1)获取序列长度, self.pe[:,:x.size(1), :]的shape(1,seq_len,embedding_dim).
+        # X.size(1)为序列长度, p的shape=(1,seq_dim,embedding_dim).
         p = self.pe[:, :X.size(1), :]
-        # 通过在批次维度上广播与X 求和.
-        X = X + p
+        X = X + p  # 通过在批次维度上广播与X 求和.
 
-        # 以某个概率将x的值变为0, 保留的值乘以1/p, 保持输出的值的期望不变.
-        # 对于某个元素x, E[output] = p * 0 + (1-p) * (1/(1-p)) * x = x.
-        if self.training:  # 训练阶段使用Dropout.
-            X = self.dropout(X)
-
-        return X
+        return self.dropout(X)
 
 
 class AddNorm(nn.Module):
@@ -137,11 +161,27 @@ class AddNorm(nn.Module):
 
 
 class DotProductAttention(nn.Module):
+    """
+    缩放点积注意力.
+    """
     def __init__(self, head_dim):
+        """
+        初始化.
+        :param head_dim: 每个头的维度.
+        """
+
         super().__init__()
         self.head_dim = head_dim
 
     def forward(self, key, query, value, attn_mask):
+        """
+        前向传播.
+        :param key: 键.
+        :param query: 查询.
+        :param value: 值.
+        :param attn_mask: 注意力掩码.
+        :return:
+        """
         # qk : (batch_size,num_heads,src_seq_len,tgt_seq_len).
         qk = query @ torch.transpose(key, -1, -2)  # 可使用torch.bmm()批量矩阵乘法.
         # scaled_qk: (batch_size,num_heads,src_seq_len,tgt_seq_len).
@@ -289,7 +329,7 @@ class PositionWiseFFN(nn.Module):
         super(PositionWiseFFN, self).__init__()
         self.W_1 = nn.Linear(num_input, num_hiddens)  # 第一个线性.
         self.activation = nn.ReLU()  # 激活函数.
-        self.activation_dropout = nn.Dropout(dropout_p)  # 激活后的Dropout.
+        self.activation_dropout = Dropout(dropout_p)  # 激活后的Dropout.
         self.W_2 = nn.Linear(num_hiddens, num_outputs)  # 第二个线性.
 
     def forward(self, X):
@@ -325,13 +365,13 @@ class TransformerEncoderLayer(nn.Module):
         # 多头注意力层.
         self.mah_layer = MultiAttentionHead(qkv_input_dim=embedding_dim, num_heads=num_heads,
                                             query_dim=embedding_dim, key_dim=embedding_dim, value_dim=embedding_dim)
-        self.mah_dropout = nn.Dropout(p=dropout_p)
+        self.mah_dropout = Dropout(dropout_p)
         self.mah_add_norm = AddNorm(embedding_dim)  # 多头注意力层的层归一化.
 
         # 前馈神经网络层.
         self.ffn = PositionWiseFFN(num_input=embedding_dim, num_hiddens=feedforward_dim,
                                    num_outputs=embedding_dim, dropout_p=dropout_p)  # 前馈神经网络层.
-        self.ffn_dropout = nn.Dropout(p=dropout_p)  # 前馈神经网层dropout.
+        self.ffn_dropout = Dropout(dropout_p)  # 前馈神经网层dropout.
         self.ffn_add_norm = AddNorm(embedding_dim)  # 前馈神经网络层归一化.
 
     def forward(self, query_input, key_input, value_input, src_mask=None, src_key_padding_mask=None):
@@ -364,7 +404,7 @@ class TransformerDecoderLayer(nn.Module):
         self.masked_mah_layer = MultiAttentionHead(qkv_input_dim=embedding_dim, num_heads=num_heads,
                                                    query_dim=embedding_dim, key_dim=embedding_dim,
                                                    value_dim=embedding_dim)
-        self.masked_mah_dropout = nn.Dropout(p=dropout_p)
+        self.masked_mah_dropout = Dropout(dropout_p)
         self.masked_mah_norm = AddNorm(embedding_dim=embedding_dim)
 
         # 初始化: 多头注意层和前馈神经网络层.
@@ -497,7 +537,7 @@ class UserTransformer(nn.Module):
 
 
 class TransformerModel(nn.Module):
-    def __init__(self, num_embeddings, pad_id, config, transformer_type='sys'):
+    def __init__(self, num_embeddings, pad_id, config, transformer_type='pytorch'):
         super(TransformerModel, self).__init__()
 
         self.num_embeddings = num_embeddings
@@ -515,11 +555,11 @@ class TransformerModel(nn.Module):
         self.train_losses = []
         self.val_losses = []
 
-        self.mask = Mask(padding_id=pad_id, device=self.device)  # 掩码器.
+        self.mask = Masker(padding_id=pad_id, device=self.device)  # 掩码器.
         self.embedding = Embedding(num_embeddings, self.embedding_dim)  # 共享嵌入层.
         self.positional_encoding = PositionalEncoding(
-            embedding_dim=self.embedding_dim, dropout_p=self.dropout_p, max_len=self.max_seq_len)  # 位置编码.
-        if transformer_type == 'sys':
+            embedding_dim=self.embedding_dim, dropout_p=self.dropout_p, max_seq_len=self.max_seq_len)  # 位置编码.
+        if transformer_type == 'pytorch':
             # 内置transformer: 仅包含编码器和解码器.
             self.transformer = nn.Transformer(
                 d_model=self.embedding_dim, nhead=self.num_heads,
