@@ -1,4 +1,3 @@
-import itertools
 import os
 from io import open
 import torch
@@ -6,7 +5,7 @@ import jieba
 import nltk
 from torch.utils.data import DataLoader, random_split
 from torch import nn
-from config import PytorchTransConfig as Config
+import random
 
 
 class Dictionary(object):
@@ -23,7 +22,7 @@ class Dictionary(object):
         self.idx2token = []  # 根据id找word, 它其实构成了字典.
         self.bos_token, self.eos_token = bos_token, eos_token
         self.key_tokens = [pad_token, bos_token, eos_token, unknown_token]
-        self.pad_id, self.bos_id, self.eos_id, self.unk_id = self.add_tokens(self.key_tokens)
+        self.key_token_ids = self.add_tokens(self.key_tokens)
         if reserved_tokens:
             self.add_tokens(reserved_tokens)  # 将保留词元加入词典.
 
@@ -116,7 +115,7 @@ class Corpus(object):
 
             tgt_tokens = [bos_token] + jieba.lcut(tgt_sent) + [eos_token]  # 中文分词.
             tgt_ids = self.process(tgt_tokens)
-            data_set.append((src_ids, tgt_ids))
+            data_set.append((src_ids, tgt_ids, src_sent, tgt_sent))
 
         return data_set
 
@@ -124,37 +123,33 @@ class Corpus(object):
         token_ids = self.dictionary.add_tokens(tokens)  # 添加到词典, 并返回ids.
         token_ids = torch.tensor(token_ids, dtype=torch.int64, device=self.device)  # 转化为张量.
         # padding.
+        pad_id, _, _, _ = self.dictionary.key_token_ids
         token_ids = nn.functional.pad(
-            token_ids, (0, self.max_seq_len - len(token_ids)), value=self.dictionary.pad_id)
+            token_ids, (0, self.max_seq_len - len(token_ids)), value=pad_id)
 
         return token_ids
 
 
 class DataSetProcessor:
     def __init__(self, data_set):
+        self.test_dataset = None
         self.val_dataset = None
         self.train_dataset = None
         self.data_set = data_set
 
-    def split(self, train_size=0.8):
+    def split(self, train_size=0.8, test_size=5):
         train_size = int(train_size * len(self.data_set))
         val_size = len(self.data_set) - train_size
         self.train_dataset, self.val_dataset = random_split(self.data_set, [train_size, val_size])
 
-        return self.train_dataset, self.val_dataset
+        indices = random.sample(range(len(self.data_set)), test_size)
+        self.test_dataset = [self.data_set[i] for i in indices]
+
+        return self.train_dataset, self.val_dataset, self.test_dataset
 
     def batchify(self, batch_size=10, shuffle=True):
         train_loader = DataLoader(self.train_dataset, batch_size=batch_size, shuffle=shuffle)
         val_loader = DataLoader(self.val_dataset, batch_size=batch_size, shuffle=shuffle)
+        test_loader = DataLoader(self.test_dataset, batch_size=len(self.test_dataset), shuffle=shuffle)
 
-        return train_loader, val_loader
-
-
-if __name__ == '__main__':
-    torch.manual_seed(42)
-    corpus = Corpus(Config.data_path, device=Config.device, max_seq_len=Config.max_seq_len)
-    vocab_size = corpus.dictionary.size()
-    dataset_processor = DataSetProcessor(corpus.data_set)
-    train_dataset, val_dataset = dataset_processor.split(train_size=0.8)
-    train_loader, val_loader = dataset_processor.batchify(batch_size=Config.batch_size)
-    print()
+        return train_loader, val_loader, test_loader
