@@ -4,6 +4,7 @@ from module import TransformerModel
 from torch import nn
 from data import Corpus, DataSetProcessor
 import random
+from sacrebleu.metrics import BLEU
 
 
 class Meta(type):
@@ -24,21 +25,19 @@ class Config(metaclass=Meta):
     # 数据配置.
     data_path = 'data/cmn-eng/cmn.txt'  # 文件路径.
     batch_size = 20  # 批大小.
-    eval_batch_size = 10  # 评估时的批次大小.
     test_size = 5  # 测试数据的个数.
     num_line = 1000  # 读取文件的行数.
     train_size = 0.8  # 训练数据的比例.
     max_seq_len = 40  # 最大序列长度.
-    batch_interval = 10  # 批次区间大小.
-    epochs = 1000  # 训练轮次.
+    epochs = 100  # 训练轮次.
 
     # 模型配置.
     d_model = 256  # 模型的维度.
     embedding_dim = d_model  # 词嵌入向量大小.
-    num_head = 8  # 头数量.
+    num_head = 2  # 头数量.
     feedforward_dim = 512  # 隐藏层神经元个数.
-    num_encoder_layers = 6  # encoder层数.
-    num_decoder_layers = 6  # encoder层数.
+    num_encoder_layers = 2  # encoder层数.
+    num_decoder_layers = 2  # encoder层数.
     dropout_p = 0.1  # dropout概率
 
     # 优化器配置.
@@ -98,7 +97,7 @@ def transformer_main(trans_type):
     for src_ids, tgt_ids, src_sent, tgt_sent in test_loader:
         outputs = model.predict(src_input=src_ids, key_token_ids=corpus.dictionary.key_token_ids)
         outputs = outputs.cpu().numpy().tolist()
-        out_sentences = []
+        predict_sentences = []
         for output in outputs:  # 将输出转换为句子.
             out_sent = ''
             for token_id in output:
@@ -107,8 +106,15 @@ def transformer_main(trans_type):
                     continue
                 out_sent += token
             out_sent = out_sent.lstrip(corpus.dictionary.bos_token)
-            out_sentences.append(out_sent)
+            predict_sentences.append(out_sent)
         print(f"输入源序列: {src_sent}")
         print(f'目标序列: {tgt_sent}')
-        print(f"预测序列: {out_sentences}")
+        print(f"预测序列: {predict_sentences}")
+
+        bleu = BLEU(tokenize='zh')
+        candidates = predict_sentences
+        references = [[i] for i in tgt_sent]  # 元组变成列表的列表.
+        score = bleu.corpus_score(candidates, references)
+        print(f"BLEU 分数: {score.score: .2f}")
+        print(f"详细信息: {score}")
     plot_curve(model.epochs, model.train_losses, model.val_losses)  # 绘制学习曲线.

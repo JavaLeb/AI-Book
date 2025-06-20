@@ -181,7 +181,7 @@ class DataSetProcessor:
         self.train_dataset, self.val_dataset = random_split(self.data_set, [train_size, val_size])
         # 随机选择几个测试集样本.
         indices = random.sample(range(len(self.data_set)), test_size)
-        self.test_dataset = [self.data_set[i] for i in indices]
+        self.test_dataset = [self.train_dataset[i] for i in indices]
 
         return self.train_dataset, self.val_dataset, self.test_dataset
 
