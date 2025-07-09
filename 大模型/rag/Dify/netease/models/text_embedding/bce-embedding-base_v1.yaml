@@ -1,0 +1,8 @@
+model: lrs33/bce-embedding-base_v1
+label:
+  zh_Hans: lrs33/bce-embedding-base_v1
+  en_US: lrs33/bce-embedding-base_v1
+model_type: text-embedding
+model_properties:
+  context_size: 512
+  max_chunks: 20
