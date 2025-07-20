@@ -1,4 +1,4 @@
-from pymilvus import MilvusClient, DataType, Collection
+from pymilvus import MilvusClient
 
 client = MilvusClient()
 collection_name = 'data_operation'
