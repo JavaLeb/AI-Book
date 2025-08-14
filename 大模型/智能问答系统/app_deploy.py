@@ -23,7 +23,7 @@ for data in item_data:
 key_list = [key for key in item_dict]
 
 # 加载embedding模型, 并将每个产品名称转换为一个向量.
-embedding_model = SentenceTransformer(r'E:\pycharm_workspace\llm\m3e-small')
+embedding_model = SentenceTransformer(r'E:\LLM\m3e-small')
 embeddings = embedding_model.encode(key_list)
 
 # 初始化历史记录

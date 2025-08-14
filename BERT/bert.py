@@ -12,7 +12,7 @@ class BertClassifier(nn.Module):
     def __init__(self, bert_model, output_size):
         super(BertClassifier, self).__init__()
         self._bert = bert_model
-        self._classifier = nn.Linear(bert_model.config.hidden_size, output_size)
+        self._classifier = nn.Linear(bert_model.config.dim_feedforward, output_size)
 
     def forward(self, input_ids, attention_mask):
         # 获取BERT模型的CLS输出
