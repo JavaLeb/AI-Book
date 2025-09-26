@@ -38,7 +38,7 @@ class MyVanna(Qdrant_VectorStore, Ollama):
 # 初始化 fastembed 并指定本地模型路径
 embedding_model = TextEmbedding(
     model_name="BAAI/bge-small-en-v1.5",  # 模型名称, Pytorch格式.
-    cache_dir=r"E:\LLM\qdrant",  # hf格式. 'model': 'BAAI/bge-base-en-v1.5' -> 'hf': 'qdrant/bge-base-en-v1.5-onnx-q'
+    cache_dir=r"D:\LLM\qdrant",  # hf格式. 'model': 'BAAI/bge-base-en-v1.5' -> 'hf': 'qdrant/bge-base-en-v1.5-onnx-q'
     local_files_only=True)
 
 embeddings = list(embedding_model.embed(["Hello, world!"]))
@@ -46,28 +46,40 @@ print('embedding=', embeddings[0].shape)  # 应输出 384 维向量
 # 初始化Qdrant.
 qdrant_client = QdrantClient(url="http://localhost:6333")
 
-# 初始化Vann.
+# 初始化Vanna.
 vn = MyVanna(config={'client': qdrant_client,
                      'embedding_model': embedding_model,
                      'model': 'llama3.2'})
 # 连接MySQL数据库.
 vn.connect_to_mysql(host='localhost', dbname='sakila', user='root', password='root', port=3306)
 
+vn.train(documentation='actor是一张演员表')
+vn.train(question='查询id为1的actor的信息',
+         sql='select * from actor where actor_id = 1')
+vn.train(sql='select * from actor where actor_id = 1')
 vn.train(ddl="""
--- sakila.actor definition
+            -- sakila.actor definition
+            
+            CREATE TABLE `actor` (
+              `actor_id` smallint unsigned NOT NULL AUTO_INCREMENT,
+              `first_name` varchar(45) NOT NULL,
+              `last_name` varchar(45) NOT NULL,
+              `last_update` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+              PRIMARY KEY (`actor_id`),
+              KEY `idx_actor_last_name` (`last_name`)
+            ) ENGINE=InnoDB AUTO_INCREMENT=201 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;""")
 
-CREATE TABLE `actor` (
-  `actor_id` smallint unsigned NOT NULL AUTO_INCREMENT,
-  `first_name` varchar(45) NOT NULL,
-  `last_name` varchar(45) NOT NULL,
-  `last_update` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  PRIMARY KEY (`actor_id`),
-  KEY `idx_actor_last_name` (`last_name`)
-) ENGINE=InnoDB AUTO_INCREMENT=201 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
-""")
+df_information_schema = vn.run_sql("SELECT * FROM INFORMATION_SCHEMA.COLUMNS limit 10")
+plan = vn.get_training_plan_generic(df_information_schema)
+vn.train(plan=plan)
 
 training_data = vn.get_training_data()
 print('training_data=', training_data)
 
 res = vn.ask(question='last_name为WOOD的actor是谁？', allow_llm_to_see_data=True)
 print('res=', res)
+
+from vanna.flask import VannaFlaskApp
+
+app = VannaFlaskApp(vn)
+app.run()
