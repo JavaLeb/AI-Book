@@ -1,0 +1,127 @@
+package flink.application.study.datastream.joining;
+
+import org.apache.flink.api.common.eventtime.*;
+import org.apache.flink.api.common.functions.JoinFunction;
+import org.apache.flink.api.java.functions.KeySelector;
+import org.apache.flink.streaming.api.datastream.DataStream;
+import org.apache.flink.streaming.api.datastream.JoinedStreams;
+import org.apache.flink.streaming.api.datastream.WindowedStream;
+import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
+import org.apache.flink.streaming.api.windowing.assigners.SlidingEventTimeWindows;
+import org.apache.flink.streaming.api.windowing.windows.TimeWindow;
+
+import java.time.Duration;
+
+public class SlidingWindowJoinDemo {
+    public static void main(String[] args) throws Exception {
+        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+        env.setParallelism(1);
+
+        DataStream<People> stream = env.fromData(
+                new People("安徽", "zhang", 0L),
+                new People("安徽", "liu", 1L),
+                new People("贵州", "li", 2L),
+                new People("贵州", "wang", 3L),
+                new People("贵州", "qian", 4L)
+        ).assignTimestampsAndWatermarks(new WatermarkStrategy<People>() {
+            @Override
+            public WatermarkGenerator<People> createWatermarkGenerator(WatermarkGeneratorSupplier.Context context) {
+                return new AscendingTimestampsWatermarks<>();
+            }
+        }.withTimestampAssigner(new SerializableTimestampAssigner<People>() {
+            @Override
+            public long extractTimestamp(People people, long recordTimestamp) {
+                return people.timestamp;
+            }
+        }));
+
+        DataStream<Car> otherStream = env.fromData(
+                new Car("安徽", "black", 0L),
+                new Car("贵州", "blue", 3L),
+                new Car("贵州", "red", 4L)
+        ).assignTimestampsAndWatermarks(new WatermarkStrategy<Car>() {
+            @Override
+            public WatermarkGenerator<Car> createWatermarkGenerator(WatermarkGeneratorSupplier.Context context) {
+                return new AscendingTimestampsWatermarks<>();
+            }
+        }.withTimestampAssigner(new SerializableTimestampAssigner<Car>() {
+            @Override
+            public long extractTimestamp(Car car, long recordTimestamp) {
+                return car.timestamp;
+            }
+        }));
+
+
+        KeySelector<People, String> peopleKeySelector = new KeySelector<People, String>() {
+            @Override
+            public String getKey(People people) throws Exception {
+                return people.city;
+            }
+        };
+
+        KeySelector<Car, String> cartKeySelector = new KeySelector<Car, String>() {
+            @Override
+            public String getKey(Car car) throws Exception {
+                return car.city;
+            }
+        };
+
+        JoinedStreams.WithWindow<People, Car, String, TimeWindow> joinedStream =stream.join(otherStream)
+                .where(peopleKeySelector)
+                .equalTo(cartKeySelector)
+                .window(SlidingEventTimeWindows.of(Duration.ofMillis(2), Duration.ofMillis(1)));
+
+        joinedStream.apply(new JoinFunction<People, Car, String>() {
+                    @Override
+                    public String join(People people, Car car) {
+                        return people + "," + car;
+                    }
+                }).print("|-->");
+
+        env.execute();
+
+    }
+
+
+    public static class People {
+        private String city;
+        private String name;
+        private Long timestamp;
+
+        public People(String city, String name, Long timestamp) {
+            this.city = city;
+            this.name = name;
+            this.timestamp = timestamp;
+        }
+
+        @Override
+        public String toString() {
+            return "People{" +
+                    "city='" + city + '\'' +
+                    ", name='" + name + '\'' +
+                    ", timestamp=" + timestamp +
+                    '}';
+        }
+    }
+
+    public static class Car {
+        private String city;
+        private String color;
+        private Long timestamp;
+
+        public Car(String city, String color, Long timestamp) {
+            this.city = city;
+            this.color = color;
+            this.timestamp = timestamp;
+        }
+
+        @Override
+        public String toString() {
+            return "Car{" +
+                    "city='" + city + '\'' +
+                    ", color='" + color + '\'' +
+                    ", timestamp=" + timestamp +
+                    '}';
+        }
+    }
+}
