@@ -51,7 +51,7 @@ public class JsonFormatDemo {
         });
 
         // 打印结果
-        userDS.print("|--->");
+        userDS.print("|--userDS-->");
 
         JsonSerializationSchema<User> serializationSchema = new JsonSerializationSchema<>();
 
