@@ -2,7 +2,6 @@ package flink.application.study.table;
 
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.connector.jdbc.core.database.catalog.factory.JdbcCatalogFactoryOptions;
-import org.apache.flink.connector.jdbc.mysql.database.catalog.MySqlCatalog;
 import org.apache.flink.table.api.TableEnvironment;
 import org.apache.flink.table.catalog.CatalogDescriptor;
 import org.apache.flink.table.catalog.CommonCatalogOptions;
