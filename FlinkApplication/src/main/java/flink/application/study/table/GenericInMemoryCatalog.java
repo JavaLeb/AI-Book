@@ -37,5 +37,7 @@ public class GenericInMemoryCatalog {
         currentDatabase = tEnv.getCurrentDatabase();
         System.out.println("currentCatalog=" + currentCatalog + ",currentDatabase=" + currentDatabase);
 
+        tEnv.executeSql("show databases").print();
+
     }
 }
