@@ -5,12 +5,7 @@ import org.apache.flink.table.api.EnvironmentSettings;
 import org.apache.flink.table.api.TableEnvironment;
 import org.apache.flink.table.api.bridge.java.StreamTableEnvironment;
 
-public class TableEnvironmentBuilder {
-
-    public static void main(String[] args) {
-        TableEnvironment tEnv = buildTableEnvironment();
-        StreamTableEnvironment stEnv = buildStreamTableEnvironment();
-    }
+public class TableAPIUtils {
 
     public static TableEnvironment buildTableEnvironment() {
         // Table Environment.
@@ -28,5 +23,11 @@ public class TableEnvironmentBuilder {
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
 
         return StreamTableEnvironment.create(env);
+    }
+
+    public static void printCurrent(TableEnvironment tEnv){
+        String currentCatalog = tEnv.getCurrentCatalog();
+        String currentDatabase = tEnv.getCurrentDatabase();
+        System.out.println("currentCatalog=" + currentCatalog + ",currentDatabase=" + currentDatabase);
     }
 }

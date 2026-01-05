@@ -6,9 +6,10 @@ import org.apache.flink.table.api.TableEnvironment;
 import org.apache.flink.table.catalog.CatalogDescriptor;
 import org.apache.flink.table.catalog.CommonCatalogOptions;
 
+
 public class MySQLJdbcCatalogDemo {
     public static void main(String[] args) {
-        TableEnvironment tableEnv = TableEnvironmentBuilder.buildTableEnvironment();
+        TableEnvironment tEnv = TableAPIUtils.buildTableEnvironment();
 
         String catalogName = "custom_catalog"; // 目录.
         String defaultDatabase = "mysql"; // 数据库必须存在.
@@ -22,19 +23,19 @@ public class MySQLJdbcCatalogDemo {
 
         CatalogDescriptor catalogDescriptor = CatalogDescriptor.of(catalogName, config);
         String logicCatalogName = "logic_custom_catalog";
-        tableEnv.createCatalog(logicCatalogName, catalogDescriptor);
+        tEnv.createCatalog(logicCatalogName, catalogDescriptor);
 
-        tableEnv.useCatalog(logicCatalogName);
+        tEnv.useCatalog(logicCatalogName);
         // 必须使用 tableEnv.executeSql("show databases")查询出的数据名称.
         // 报错: A database with name [mysql] does not exist in the catalog: [logic_custom_catalog].
-        tableEnv.useDatabase("dbgpt");
+        tEnv.useDatabase("dbgpt");
 
-        System.out.println("currentCatalog=" + tableEnv.getCurrentCatalog() +
-                ",currentDatabase=" + tableEnv.getCurrentDatabase());
+        System.out.println("currentCatalog=" + tEnv.getCurrentCatalog() +
+                ",currentDatabase=" + tEnv.getCurrentDatabase());
 
-        tableEnv.executeSql("show catalogs").print();
+        tEnv.executeSql("show catalogs").print();
         // 内部对MySQL内置数据库做了过滤, 最终结果不包含mysql等内置数据库.
-        tableEnv.executeSql("show databases").print();
+        tEnv.executeSql("show databases").print();
 
     }
 }

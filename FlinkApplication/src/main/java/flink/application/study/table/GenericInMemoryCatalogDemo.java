@@ -6,11 +6,11 @@ import org.apache.flink.table.catalog.CatalogDescriptor;
 import org.apache.flink.table.catalog.CommonCatalogOptions;
 import org.apache.flink.table.catalog.GenericInMemoryCatalogFactoryOptions;
 
-public class GenericInMemoryCatalog {
+public class GenericInMemoryCatalogDemo {
     public static void main(String[] args) {
-        TableEnvironment tEnv = TableEnvironmentBuilder.buildTableEnvironment();
+        TableEnvironment tEnv = TableAPIUtils.buildTableEnvironment();
 
-        printCurrent(tEnv);
+        TableAPIUtils.printCurrent(tEnv);
 
         String catalogName = "custom_catalog";
         String customDatabase = "custom_database";
@@ -34,15 +34,11 @@ public class GenericInMemoryCatalog {
         tEnv.useCatalog(logicCustomCatalog);
         tEnv.useDatabase(customDatabase);
 
-        printCurrent(tEnv);
+        TableAPIUtils.printCurrent(tEnv);
 
         tEnv.executeSql("show databases").print();
 
     }
 
-    public static void printCurrent(TableEnvironment tEnv){
-        String currentCatalog = tEnv.getCurrentCatalog();
-        String currentDatabase = tEnv.getCurrentDatabase();
-        System.out.println("currentCatalog=" + currentCatalog + ",currentDatabase=" + currentDatabase);
-    }
+
 }
