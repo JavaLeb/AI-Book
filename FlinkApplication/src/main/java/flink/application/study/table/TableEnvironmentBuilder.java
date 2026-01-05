@@ -9,7 +9,6 @@ public class TableEnvironmentBuilder {
 
     public static void main(String[] args) {
         TableEnvironment tEnv = buildTableEnvironment();
-
         StreamTableEnvironment stEnv = buildStreamTableEnvironment();
     }
 
@@ -27,8 +26,6 @@ public class TableEnvironmentBuilder {
     public static StreamTableEnvironment buildStreamTableEnvironment() {
         // Stream Environment.
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
-
-        // Stream Table Environment.
 
         return StreamTableEnvironment.create(env);
     }
