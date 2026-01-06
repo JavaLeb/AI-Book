@@ -1,31 +1,23 @@
-package flink.application.study.table;
+package flink.application.study.table.catalog;
 
+import flink.application.study.table.TableAPIUtils;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.connector.jdbc.core.database.catalog.factory.JdbcCatalogFactoryOptions;
 import org.apache.flink.table.api.TableEnvironment;
 import org.apache.flink.table.catalog.CatalogDescriptor;
 import org.apache.flink.table.catalog.CommonCatalogOptions;
+import org.apache.flink.table.catalog.hive.factories.HiveCatalogFactoryOptions;
 
 
-public class MySQLJdbcCatalogDemo {
+public class MySQLCatalogConnectionDemo {
     public static void main(String[] args) {
         TableEnvironment tEnv = TableAPIUtils.buildTableEnvironment();
 
         String catalogName = "custom_catalog"; // 目录.
-        String defaultDatabase = "mysql"; // 数据库必须存在.
-
-        Configuration config = new Configuration();
-        config.set(CommonCatalogOptions.CATALOG_TYPE, JdbcCatalogFactoryOptions.IDENTIFIER);
-        config.set(JdbcCatalogFactoryOptions.BASE_URL, "jdbc:mysql://localhost:3306");
-        config.set(JdbcCatalogFactoryOptions.USERNAME, "root");
-        config.set(JdbcCatalogFactoryOptions.PASSWORD, "root");
-        config.set(JdbcCatalogFactoryOptions.DEFAULT_DATABASE, defaultDatabase);
-
-        CatalogDescriptor catalogDescriptor = CatalogDescriptor.of(catalogName, config);
         String logicCatalogName = "logic_custom_catalog";
-        tEnv.createCatalog(logicCatalogName, catalogDescriptor);
 
-        tEnv.useCatalog(logicCatalogName);
+        registerCatalog(catalogName, logicCatalogName, tEnv);
+
         // 必须使用 tableEnv.executeSql("show databases")查询出的数据名称.
         // 报错: A database with name [mysql] does not exist in the catalog: [logic_custom_catalog].
         tEnv.useDatabase("dbgpt");
@@ -38,4 +30,21 @@ public class MySQLJdbcCatalogDemo {
         tEnv.executeSql("show databases").print();
 
     }
+
+    public static void registerCatalog(String catalogName, String logicCatalogName, TableEnvironment tEnv) {
+        String defaultDatabase = "mysql"; // 数据库必须存在.
+
+        Configuration config = new Configuration();
+        config.set(CommonCatalogOptions.CATALOG_TYPE, JdbcCatalogFactoryOptions.IDENTIFIER);
+        config.set(JdbcCatalogFactoryOptions.BASE_URL, "jdbc:mysql://localhost:3306");
+        config.set(JdbcCatalogFactoryOptions.USERNAME, "root");
+        config.set(JdbcCatalogFactoryOptions.PASSWORD, "root");
+        config.set(JdbcCatalogFactoryOptions.DEFAULT_DATABASE, defaultDatabase);
+
+        CatalogDescriptor catalogDescriptor = CatalogDescriptor.of(catalogName, config);
+        tEnv.createCatalog(logicCatalogName, catalogDescriptor);
+
+        tEnv.useCatalog(logicCatalogName);
+    }
+
 }

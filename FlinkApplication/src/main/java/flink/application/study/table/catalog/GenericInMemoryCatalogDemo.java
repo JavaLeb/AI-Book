@@ -1,5 +1,6 @@
-package flink.application.study.table;
+package flink.application.study.table.catalog;
 
+import flink.application.study.table.TableAPIUtils;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.table.api.*;
 import org.apache.flink.table.catalog.CatalogDescriptor;
