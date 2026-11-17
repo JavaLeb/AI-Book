@@ -1,0 +1,8 @@
+from langchain.tools import tool
+
+
+@tool
+def get_weather(city: str) -> str:
+    """Get weather for a city."""
+
+    return f"It is currently sunny in {city}."

@@ -2,9 +2,8 @@ from langchain.chat_models import init_chat_model
 
 model = init_chat_model(model="ollama:qwen2.5:7b")
 
-response = model.invoke("Why do parrots have colorful feathers?")
-print(response)
-
+response = model.invoke(input="Why do parrots have colorful feathers?")
+print("response of single message:\n", response)
 
 conversation = [
     {"role": "system", "content": "You are a helpful assistant that translates English to French."},
@@ -13,9 +12,8 @@ conversation = [
     {"role": "user", "content": "Translate: I love building applications."}
 ]
 
-response = model.invoke(conversation)
-print(response)  # AIMessage("J'adore créer des applications.")
-
+response = model.invoke(input=conversation)
+print("response of message list:\n",response)  # AIMessage("J'adore créer des applications.")
 
 from langchain.messages import HumanMessage, AIMessage, SystemMessage
 
@@ -26,7 +24,5 @@ conversation = [
     HumanMessage("Translate: I love building applications.")
 ]
 
-response = model.invoke(conversation)
-print(response)  # AIMessage("J'adore créer des applications.")
-
-
+response = model.invoke(input=conversation)
+print("response of message list using Message Object:\n",response)  # AIMessage("J'adore créer des applications.")
