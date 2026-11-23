@@ -15,8 +15,9 @@ agent = create_agent(
     system_prompt="You are a helpful assistant",
 )
 
-for _ in range(2):
+cities = ['beijing', 'San Francisco']
+for city in cities:
     result = agent.invoke(
-        input={"messages": [{"role": "user", "content": "What's the weather in San Francisco?"}]}
+        input={"messages": [{"role": "user", "content": "What's the weather in " + city + "?"}]}
     )
     print(result["messages"][-1].content_blocks)
