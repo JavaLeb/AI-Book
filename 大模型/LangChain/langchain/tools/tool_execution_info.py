@@ -1,6 +1,6 @@
 from langchain.tools import tool, ToolRuntime
 from langchain.agents import create_agent
-from langchain.chat_models import init_chat_model
+from models import qwen2dot5_7b_model as model
 
 @tool
 def log_execution_context(runtime: ToolRuntime) -> str:
@@ -14,8 +14,6 @@ def log_execution_context(runtime: ToolRuntime) -> str:
 
 
 # 使用本地模型演示，例如 Ollama
-model = init_chat_model(model="ollama:qwen2.5:7b")
-
 agent = create_agent(
     model=model,
     tools=[log_execution_context]
@@ -23,7 +21,7 @@ agent = create_agent(
 
 result = agent.invoke(
     {"messages": [{"role": "user", "content": "请调用 log_execution_context 工具"}]},
-    config={"configurable": {"thread_id": "demo-thread-1"}},
+    config={"configurable": {"thread_id": "thread-1"},"run_id":"run-1"},
 )
 
 for message in result["messages"]:

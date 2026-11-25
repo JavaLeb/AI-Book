@@ -1,6 +1,4 @@
-from langchain.chat_models import init_chat_model
-
-model = init_chat_model("gpt-5.4-mini")
+from models import qwen2dot5_7b_model as model
 
 tool = {"type": "web_search"}
 model_with_tools = model.bind_tools([tool])

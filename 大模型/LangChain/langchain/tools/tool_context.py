@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from langchain.agents import create_agent
 from langchain.tools import tool, ToolRuntime
 from langchain_core.utils.uuid import uuid7
-from langchain.chat_models import init_chat_model
+from models import qwen2dot5_7b_model as model
 from langgraph.checkpoint.memory import InMemorySaver
 
 # 模拟用户数据库.
@@ -46,7 +46,6 @@ def get_account_info(runtime: ToolRuntime[UserContext]) -> str:
     return "User not found"
 
 
-model = init_chat_model(model="ollama:qwen2.5:7b")
 agent = create_agent(
     model,
     tools=[get_account_info],
@@ -55,20 +54,20 @@ agent = create_agent(
     system_prompt="You are a financial assistant.",
 )
 
-thread_id = str(uuid7())
-config = {"configurable": {"thread_id": thread_id}}
+
+config = {"configurable": {"thread_id": str(uuid7())}}
 context = UserContext(user_id="user123")
 
 result = agent.invoke(
     {"messages": [{"role": "user", "content": "What's my current balance?"}]},
     config=config,
-    context=context,
+    context=context
 )
 print(result["messages"][-1].content_blocks)
 
 result = agent.invoke(
     {"messages": [{"role": "user", "content": "What was my balance again?"}]},
     config=config,
-    context=context,
+    context=context
 )
 print(result["messages"][-1].content_blocks)

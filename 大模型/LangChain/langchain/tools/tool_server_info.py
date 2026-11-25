@@ -1,10 +1,7 @@
-from langchain.messages import HumanMessage, ToolMessage
-from langchain.agents import create_agent, AgentState
-from langchain.tools import tool, ToolRuntime
+from langchain.agents import create_agent
 from langchain.chat_models import init_chat_model
-from langgraph.types import Command
-
 from langchain.tools import tool, ToolRuntime
+from models import qwen2dot5_7b_model as model
 
 
 @tool
@@ -18,10 +15,9 @@ def get_assistant_scoped_data(runtime: ToolRuntime) -> str:
         print(f"Assistant: {server.assistant_id}, Graph: {server.graph_id}")
         if server.user is not None:
             print(f"User: {server.user.identity}")
+
     return "done"
 
-
-model = init_chat_model(model="ollama:qwen2.5:7b")
 
 agent = create_agent(
     model,
